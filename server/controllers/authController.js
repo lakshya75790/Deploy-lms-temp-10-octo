@@ -106,7 +106,7 @@ const setupOrganization = async (req, res, next) => {
   }
 };
 
-const { checkAndReserveLicense } = require('../services/licenseService');
+const { checkAndReserveLicense, getOrgLicenseValidity } = require('../services/licenseService');
 
 /**
  * @desc    Public Employee Registration
@@ -126,6 +126,13 @@ const registerEmployee = async (req, res, next) => {
     });
     if (!organization) {
       throw new ApiError(404, 'Organization not found with the provided code');
+    }
+
+    const validity = await getOrgLicenseValidity(organization.id);
+    if (!validity.isValid) {
+      const err = new ApiError(403, validity.message);
+      err.errorCode = validity.errorCode;
+      throw err;
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -244,8 +251,16 @@ const login = async (req, res, next) => {
       throw new ApiError(403, 'Your account has been deactivated. Please contact your administrator.');
     }
 
-    if (user.role !== 'SuperAdmin' && user.organization && String(user.organization.status || 'ACTIVE').toUpperCase() === 'INACTIVE') {
-      throw new ApiError(403, 'Your organization has been deactivated by the Super Admin. Please contact your administrator.');
+    if (user.role !== 'SuperAdmin' && user.organization) {
+      if (String(user.organization.status || 'ACTIVE').toUpperCase() === 'INACTIVE') {
+        throw new ApiError(403, 'Your organization has been deactivated by the Super Admin. Please contact your administrator.');
+      }
+      const validity = await getOrgLicenseValidity(user.organization.id);
+      if (!validity.isValid) {
+        const err = new ApiError(403, validity.message);
+        err.errorCode = validity.errorCode;
+        throw err;
+      }
     }
 
     generateTokenAndSetCookie(res, user.id, user.role, user.organizationId, user.name);
@@ -320,6 +335,15 @@ const getMe = async (req, res, next) => {
 
     if (!user) {
       throw new ApiError(404, 'User not found');
+    }
+
+    if (user.role !== 'SuperAdmin' && user.organizationId) {
+      const validity = await getOrgLicenseValidity(user.organizationId);
+      if (!validity.isValid) {
+        const err = new ApiError(403, validity.message);
+        err.errorCode = validity.errorCode;
+        throw err;
+      }
     }
 
     const userObj = formatUserResponse(user);

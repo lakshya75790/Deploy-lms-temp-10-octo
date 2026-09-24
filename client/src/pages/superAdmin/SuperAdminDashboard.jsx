@@ -21,8 +21,18 @@ import {
   Hash,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Calendar,
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
+
+const getTodayString = () => new Date().toISOString().split('T')[0];
+const getOneYearLaterString = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
+};
 
 export const SuperAdminDashboard = () => {
   const { addToast } = useNotification();
@@ -56,18 +66,24 @@ export const SuperAdminDashboard = () => {
     code: '',
     description: '',
     totalLicenses: 5,
+    licenseStartDate: getTodayString(),
+    licenseEndDate: getOneYearLaterString(),
     adminName: '',
     adminEmail: '',
     adminPassword: ''
   });
+
   const [editForm, setEditForm] = useState({
     name: '',
     code: '',
     description: '',
     totalLicenses: 5,
+    licenseStartDate: '',
+    licenseEndDate: '',
     adminEmail: '',
     adminName: ''
   });
+
   const [submitting, setSubmitting] = useState(false);
 
   const fetchOrganizations = async (pageNum = page, searchVal = searchTerm, skipCache = false) => {
@@ -108,6 +124,7 @@ export const SuperAdminDashboard = () => {
     const adminEmail = (createForm.adminEmail || '').trim();
     const adminPassword = (createForm.adminPassword || '');
     const totalLicenses = parseInt(createForm.totalLicenses, 10);
+    const { licenseStartDate, licenseEndDate } = createForm;
 
     if (!name) {
       addToast('error', 'Organization Name is required');
@@ -119,6 +136,18 @@ export const SuperAdminDashboard = () => {
     }
     if (isNaN(totalLicenses) || totalLicenses < 1) {
       addToast('error', 'Total Licenses must be a valid positive integer (at least 1)');
+      return;
+    }
+    if (!licenseStartDate) {
+      addToast('error', 'License Start Date is required');
+      return;
+    }
+    if (!licenseEndDate) {
+      addToast('error', 'License End Date is required');
+      return;
+    }
+    if (new Date(licenseEndDate) < new Date(licenseStartDate)) {
+      addToast('error', 'License End Date cannot be earlier than License Start Date');
       return;
     }
     if (!adminName) {
@@ -148,6 +177,8 @@ export const SuperAdminDashboard = () => {
         adminName,
         adminEmail,
         totalLicenses,
+        licenseStartDate,
+        licenseEndDate,
         description: (createForm.description || '').trim()
       });
       addToast('success', 'Organization and initial Org Admin created successfully!');
@@ -157,6 +188,8 @@ export const SuperAdminDashboard = () => {
         code: '',
         description: '',
         totalLicenses: 5,
+        licenseStartDate: getTodayString(),
+        licenseEndDate: getOneYearLaterString(),
         adminName: '',
         adminEmail: '',
         adminPassword: ''
@@ -172,6 +205,13 @@ export const SuperAdminDashboard = () => {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!selectedOrg) return;
+
+    if (editForm.licenseStartDate && editForm.licenseEndDate) {
+      if (new Date(editForm.licenseEndDate) < new Date(editForm.licenseStartDate)) {
+        addToast('error', 'License End Date cannot be earlier than License Start Date');
+        return;
+      }
+    }
 
     if (editForm.adminEmail && editForm.adminEmail.trim()) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -227,6 +267,8 @@ export const SuperAdminDashboard = () => {
       code: org.code || '',
       description: org.description || '',
       totalLicenses: org.totalLicenses || 5,
+      licenseStartDate: org.licenseStartDate ? new Date(org.licenseStartDate).toISOString().split('T')[0] : getTodayString(),
+      licenseEndDate: org.licenseEndDate ? new Date(org.licenseEndDate).toISOString().split('T')[0] : getOneYearLaterString(),
       adminEmail: org.adminEmail || '',
       adminName: org.adminName || ''
     });
@@ -243,6 +285,19 @@ export const SuperAdminDashboard = () => {
     return matchesSearch;
   });
 
+  const formatDateDisplay = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
       {/* Header Banner */}
@@ -256,7 +311,7 @@ export const SuperAdminDashboard = () => {
             Platform Governance Console
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-            Provision multi-tenant client organizations, manage administrative roles, and govern access across the LMS platform.
+            Provision multi-tenant client organizations, govern license seats & validity periods, and manage administrative access.
           </p>
         </div>
 
@@ -425,15 +480,16 @@ export const SuperAdminDashboard = () => {
                 <th className="px-6 py-3.5">Organization</th>
                 <th className="px-6 py-3.5">Org Code</th>
                 <th className="px-6 py-3.5">Licenses (Used / Total)</th>
-                <th className="px-6 py-3.5">Status</th>
-                <th className="px-6 py-3.5">Created Date</th>
+                <th className="px-6 py-3.5">License Validity Period</th>
+                <th className="px-6 py-3.5">License Status</th>
+                <th className="px-6 py-3.5">Org Status</th>
                 <th className="px-6 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-12">
+                  <td colSpan="7" className="text-center py-12">
                     <div className="flex flex-col items-center justify-center space-y-3">
                       <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin" />
                       <p className="text-xs font-semibold text-slate-500">
@@ -444,7 +500,7 @@ export const SuperAdminDashboard = () => {
                 </tr>
               ) : filteredOrgs.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-12">
+                  <td colSpan="7" className="text-center py-12">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <Building2 className="w-10 h-10 text-slate-300" />
                       <h4 className="text-sm font-bold text-slate-800">
@@ -460,6 +516,30 @@ export const SuperAdminDashboard = () => {
                 filteredOrgs.map((org) => {
                   const isActive = String(org.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
                   const orgId = org.id || org._id;
+                  const licStatus = org.licenseStatus || 'Active';
+
+                  let statusBadge = (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5 animate-pulse" />
+                      Active
+                    </span>
+                  );
+
+                  if (licStatus === 'Expired') {
+                    statusBadge = (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200">
+                        <AlertTriangle className="w-3 h-3 mr-1 text-rose-600" />
+                        Expired
+                      </span>
+                    );
+                  } else if (licStatus === 'Not Started') {
+                    statusBadge = (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+                        <Clock className="w-3 h-3 mr-1 text-amber-600" />
+                        Not Started
+                      </span>
+                    );
+                  }
 
                   return (
                     <tr
@@ -490,7 +570,7 @@ export const SuperAdminDashboard = () => {
                         </span>
                       </td>
 
-                      {/* Licenses */}
+                      {/* Licenses Quantity */}
                       <td className="px-6 py-4 text-xs font-semibold">
                         <div className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
                           <ShieldCheck className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
@@ -498,11 +578,28 @@ export const SuperAdminDashboard = () => {
                         </div>
                       </td>
 
-                      {/* Status */}
+                      {/* License Validity Period */}
+                      <td className="px-6 py-4 text-xs font-medium text-slate-600">
+                        <div className="flex flex-col space-y-0.5">
+                          <div className="flex items-center space-x-1 font-mono text-[11px] text-slate-700 font-semibold">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <span>{formatDateDisplay(org.licenseStartDate)}</span>
+                            <span className="text-slate-400">→</span>
+                            <span>{formatDateDisplay(org.licenseEndDate)}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* License Status */}
+                      <td className="px-6 py-4">
+                        {statusBadge}
+                      </td>
+
+                      {/* Org Status */}
                       <td className="px-6 py-4">
                         {isActive ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5 animate-pulse" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5" />
                             ACTIVE
                           </span>
                         ) : (
@@ -513,22 +610,13 @@ export const SuperAdminDashboard = () => {
                         )}
                       </td>
 
-                      {/* Created Date */}
-                      <td className="px-6 py-4 text-xs font-medium text-slate-500 font-mono">
-                        {new Date(org.createdAt).toLocaleDateString(undefined, {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                      </td>
-
                       {/* Actions */}
                       <td className="px-6 py-4 text-right">
                         <div className="inline-flex items-center space-x-2">
                           <button
                             onClick={() => openEditModal(org)}
                             className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                            title="Edit Details"
+                            title="Edit Details & License Dates"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
@@ -676,9 +764,52 @@ export const SuperAdminDashboard = () => {
               </div>
             </div>
 
-            <div className="pt-3 flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
+            {/* License Validity Dates Section */}
+            <div className="pt-2 flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
+              <Calendar className="w-4 h-4" />
+              <span>2. Organization LMS License Validity</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  License Start Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <input
+                    type="date"
+                    value={createForm.licenseStartDate}
+                    onChange={(e) => setCreateForm({ ...createForm, licenseStartDate: e.target.value })}
+                    required
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  License End Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <input
+                    type="date"
+                    value={createForm.licenseEndDate}
+                    onChange={(e) => setCreateForm({ ...createForm, licenseEndDate: e.target.value })}
+                    required
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 italic">
+              These dates define the active validity period for the organization's LMS access.
+            </p>
+
+            <div className="pt-2 flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
               <User className="w-4 h-4" />
-              <span>2. Initial Organization Admin Credentials</span>
+              <span>3. Initial Organization Admin Credentials</span>
             </div>
 
             {/* Admin Name */}
@@ -768,7 +899,7 @@ export const SuperAdminDashboard = () => {
       <Modal
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
-        title="Edit Organization Details"
+        title="Edit Organization & License Validity"
         maxWidth="max-w-lg"
       >
         <form onSubmit={handleEditSubmit} className="space-y-4">
@@ -788,19 +919,39 @@ export const SuperAdminDashboard = () => {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Organization Code *
-            </label>
-            <div className="relative">
-              <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                value={editForm.code}
-                onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
-                required
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-mono uppercase tracking-wider focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
-              />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Organization Code *
+              </label>
+              <div className="relative">
+                <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={editForm.code}
+                  onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-mono uppercase tracking-wider focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Total Licenses *
+              </label>
+              <div className="relative">
+                <Users className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={editForm.totalLicenses}
+                  onChange={(e) => setEditForm({ ...editForm, totalLicenses: e.target.value })}
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -819,26 +970,50 @@ export const SuperAdminDashboard = () => {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Total Licenses *
-            </label>
-            <div className="relative">
-              <Users className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={editForm.totalLicenses}
-                onChange={(e) => setEditForm({ ...editForm, totalLicenses: e.target.value })}
-                required
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
-              />
+          {/* License Validity Section */}
+          <div className="pt-2 border-t border-slate-100 space-y-3">
+            <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
+              <Calendar className="w-4 h-4" />
+              <span>License Validity Period</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  License Start Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <input
+                    type="date"
+                    value={editForm.licenseStartDate}
+                    onChange={(e) => setEditForm({ ...editForm, licenseStartDate: e.target.value })}
+                    required
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  License End Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <input
+                    type="date"
+                    value={editForm.licenseEndDate}
+                    onChange={(e) => setEditForm({ ...editForm, licenseEndDate: e.target.value })}
+                    required
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Org Admin Information Section */}
-          <div className="pt-3 border-t border-slate-100 space-y-3">
+          <div className="pt-2 border-t border-slate-100 space-y-3">
             <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
               <User className="w-4 h-4" />
               <span>Organization Admin Details</span>
@@ -900,4 +1075,3 @@ export const SuperAdminDashboard = () => {
     </div>
   );
 };
-

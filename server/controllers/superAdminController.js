@@ -2,16 +2,47 @@ const bcrypt = require('bcryptjs');
 const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
+const { invalidateOrgLicenseCache } = require('../services/licenseService');
 
-// @desc    Create a new Organization with an Initial Org Admin
+const computeLicenseStatus = (startDate, endDate) => {
+  const now = new Date();
+  if (startDate) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    if (now < start) return 'Not Started';
+  }
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    if (now > end) return 'Expired';
+  }
+  return 'Active';
+};
+
+// @desc    Create a new Organization with an Initial Org Admin & License Validity Dates
 // @route   POST /api/super-admin/organizations
 // @access  Private (SuperAdmin)
 const createOrganization = async (req, res, next) => {
   try {
-    const { name, code, description, adminName, adminEmail, adminPassword, totalLicenses } = req.body;
+    const { name, code, description, adminName, adminEmail, adminPassword, totalLicenses, licenseStartDate, licenseEndDate } = req.body;
 
     if (!name || !adminName || !adminEmail || !adminPassword) {
       throw new ApiError(400, 'Organization name, Admin name, email, and password are required');
+    }
+
+    if (!licenseStartDate || !licenseEndDate) {
+      throw new ApiError(400, 'License Start Date and License End Date are required');
+    }
+
+    const startDate = new Date(licenseStartDate);
+    const endDate = new Date(licenseEndDate);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      throw new ApiError(400, 'Please enter valid License Start Date and End Date');
+    }
+
+    if (endDate < startDate) {
+      throw new ApiError(400, 'License End Date cannot be earlier than License Start Date');
     }
 
     let totalLicensesNum = 5;
@@ -49,6 +80,8 @@ const createOrganization = async (req, res, next) => {
         code: orgCode,
         description: description ? description.trim() : null,
         totalLicenses: totalLicensesNum,
+        licenseStartDate: startDate,
+        licenseEndDate: endDate,
         status: 'ACTIVE'
       }
     });
@@ -72,9 +105,11 @@ const createOrganization = async (req, res, next) => {
         userName: req.user.name || 'System Super Admin',
         userRole: 'SuperAdmin',
         action: 'CREATE_ORGANIZATION',
-        details: `Organization "${organization.name}" (${organization.code}) created with ${totalLicensesNum} total licenses and Admin "${adminUser.email}"`
+        details: `Organization "${organization.name}" (${organization.code}) created with ${totalLicensesNum} total licenses, license period (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}), and Admin "${adminUser.email}"`
       }
-    });
+    }).catch(err => console.error('Audit log error in createOrganization:', err));
+
+    invalidateOrgLicenseCache(organization.id);
 
     res.status(201).json(
       new ApiResponse(
@@ -125,6 +160,8 @@ const getAllOrganizations = async (req, res, next) => {
           description: true,
           status: true,
           totalLicenses: true,
+          licenseStartDate: true,
+          licenseEndDate: true,
           createdAt: true,
           updatedAt: true,
           users: {
@@ -171,11 +208,16 @@ const getAllOrganizations = async (req, res, next) => {
       const total = typeof org.totalLicenses === 'number' && !isNaN(org.totalLicenses) ? org.totalLicenses : 5;
       const used = countMap.get(org.id) || 0;
       const primaryAdmin = org.users && org.users[0] ? org.users[0] : null;
+      const licenseStatus = computeLicenseStatus(org.licenseStartDate, org.licenseEndDate);
+
       return {
         ...transformed,
         totalLicenses: total,
         usedLicenses: used,
         remainingLicenses: Math.max(0, total - used),
+        licenseStartDate: org.licenseStartDate,
+        licenseEndDate: org.licenseEndDate,
+        licenseStatus,
         departmentCount: org._count.departments,
         trainingCount: org._count.trainings,
         adminEmail: primaryAdmin ? primaryAdmin.email : '',
@@ -215,13 +257,13 @@ const getAllOrganizations = async (req, res, next) => {
   }
 };
 
-// @desc    Update Organization Details
+// @desc    Update Organization Details (Including License Validity Dates)
 // @route   PUT /api/super-admin/organizations/:id
 // @access  Private (SuperAdmin)
 const updateOrganization = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, code, description, totalLicenses, adminEmail, adminName } = req.body;
+    const { name, code, description, totalLicenses, adminEmail, adminName, licenseStartDate, licenseEndDate } = req.body;
 
     const existingOrg = await prisma.organization.findUnique({
       where: { id }
@@ -259,6 +301,30 @@ const updateOrganization = async (req, res, next) => {
       }
 
       updatedTotalLicenses = parsed;
+    }
+
+    // License Dates validation
+    let newStartDate = existingOrg.licenseStartDate;
+    let newEndDate = existingOrg.licenseEndDate;
+
+    if (licenseStartDate !== undefined && licenseStartDate !== null && licenseStartDate !== '') {
+      const parsedStart = new Date(licenseStartDate);
+      if (isNaN(parsedStart.getTime())) {
+        throw new ApiError(400, 'Please enter a valid License Start Date');
+      }
+      newStartDate = parsedStart;
+    }
+
+    if (licenseEndDate !== undefined && licenseEndDate !== null && licenseEndDate !== '') {
+      const parsedEnd = new Date(licenseEndDate);
+      if (isNaN(parsedEnd.getTime())) {
+        throw new ApiError(400, 'Please enter a valid License End Date');
+      }
+      newEndDate = parsedEnd;
+    }
+
+    if (newStartDate && newEndDate && newEndDate < newStartDate) {
+      throw new ApiError(400, 'License End Date cannot be earlier than License Start Date');
     }
 
     // Handle Organization Admin Email / Name Update
@@ -309,9 +375,26 @@ const updateOrganization = async (req, res, next) => {
         ...(name && { name: name.trim() }),
         ...(code && { code: code.trim().toUpperCase() }),
         ...(description !== undefined && { description: description ? description.trim() : null }),
-        ...(updatedTotalLicenses !== undefined && { totalLicenses: updatedTotalLicenses })
+        ...(updatedTotalLicenses !== undefined && { totalLicenses: updatedTotalLicenses }),
+        ...(licenseStartDate !== undefined && { licenseStartDate: newStartDate }),
+        ...(licenseEndDate !== undefined && { licenseEndDate: newEndDate })
       }
     });
+
+    invalidateOrgLicenseCache(id);
+
+    if (licenseStartDate !== undefined || licenseEndDate !== undefined) {
+      await prisma.auditLog.create({
+        data: {
+          organizationId: id,
+          userId: req.user.id,
+          userName: req.user.name || 'System Super Admin',
+          userRole: 'SuperAdmin',
+          action: 'UPDATE_ORGANIZATION_LICENSE_DATES',
+          details: `Updated license validity for organization "${updatedOrg.name}" (${updatedOrg.code}) to Start: ${newStartDate ? newStartDate.toISOString().split('T')[0] : 'N/A'}, End: ${newEndDate ? newEndDate.toISOString().split('T')[0] : 'N/A'}`
+        }
+      }).catch(err => console.error('Failed to log audit action for updateOrganization:', err));
+    }
 
     res.status(200).json(
       new ApiResponse(
@@ -350,6 +433,8 @@ const toggleOrganizationStatus = async (req, res, next) => {
       where: { id: String(id) },
       data: { status: normalizedStatus }
     });
+
+    invalidateOrgLicenseCache(String(id));
 
     res.status(200).json(
       new ApiResponse(

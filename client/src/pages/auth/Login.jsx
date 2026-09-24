@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import { Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 
 export const Login = () => {
   const { login } = useAuth();
@@ -13,10 +13,13 @@ export const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [licenseError, setLicenseError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setLicenseError(null);
+
     try {
       const u = await login({ email, password });
       addToast('success', `Welcome back, ${u.name}!`);
@@ -26,7 +29,20 @@ export const Login = () => {
       else if (u.role === 'Instructor') navigate('/instructor');
       else navigate('/employee');
     } catch (err) {
-      addToast('error', err.message || 'Login failed. Check your credentials.');
+      const isExpired = err.errorCode === 'ORGANIZATION_LICENSE_EXPIRED' || (err.message && err.message.toLowerCase().includes('expired'));
+      const isNotStarted = err.errorCode === 'ORGANIZATION_LICENSE_NOT_STARTED' || (err.message && err.message.toLowerCase().includes('not started'));
+
+      if (isExpired) {
+        const msg = "Your organization's LMS license has expired. Please contact your Organization Admin to renew or extend the license.";
+        setLicenseError(msg);
+        addToast('error', msg);
+      } else if (isNotStarted) {
+        const msg = "Your organization's LMS license has not started yet. Please contact your administrator.";
+        setLicenseError(msg);
+        addToast('error', msg);
+      } else {
+        addToast('error', err.message || 'Login failed. Check your credentials.');
+      }
     } finally {
       setLoading(false);
     }
@@ -41,6 +57,18 @@ export const Login = () => {
         </p>
       </div>
 
+      {licenseError && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start space-x-3 shadow-xs animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <span className="font-extrabold text-rose-900 uppercase tracking-wider block">
+              Access Restricted
+            </span>
+            <p className="leading-relaxed font-medium">{licenseError}</p>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">Work Email Address</label>
@@ -49,7 +77,10 @@ export const Login = () => {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (licenseError) setLicenseError(null);
+              }}
               required
               placeholder="name@company.com"
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
@@ -69,7 +100,10 @@ export const Login = () => {
             <input
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (licenseError) setLicenseError(null);
+              }}
               required
               placeholder="••••••••"
               className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
@@ -111,4 +145,3 @@ export const Login = () => {
     </div>
   );
 };
-

@@ -365,6 +365,104 @@ export const AdminDashboard = () => {
             </div>
           </div>
 
+          {/* SECTION 2.5: LICENSE INFORMATION CARD */}
+          {(() => {
+            const licenseStats = data?.licenseStats || {};
+            const startDate = licenseStats.licenseStartDate;
+            const endDate = licenseStats.licenseEndDate;
+            const status = licenseStats.licenseStatus || 'Active';
+            const total = quickStats.totalLicenses ?? 5;
+            const used = quickStats.usedLicenses ?? 0;
+            const remaining = quickStats.remainingLicenses ?? Math.max(0, total - used);
+
+            const formatDateDisplay = (dateString) => {
+              if (!dateString) return 'N/A';
+              try {
+                return new Date(dateString).toLocaleDateString(undefined, {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric'
+                });
+              } catch (e) {
+                return 'N/A';
+              }
+            };
+
+            let statusBadge = (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                Active
+              </span>
+            );
+
+            if (status === 'Expired') {
+              statusBadge = (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200">
+                  <ShieldAlert className="w-3.5 h-3.5 mr-1.5 text-rose-600" />
+                  Expired
+                </span>
+              );
+            } else if (status === 'Not Started') {
+              statusBadge = (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+                  <Clock className="w-3.5 h-3.5 mr-1.5 text-amber-600" />
+                  Not Started
+                </span>
+              );
+            }
+
+            return (
+              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900 tracking-tight font-heading">
+                        License Information
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Organization LMS license validity and seat usage allocations (Managed by Super Admin)
+                      </p>
+                    </div>
+                  </div>
+                  <div>{statusBadge}</div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Start Date</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono">
+                      {formatDateDisplay(startDate)}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">End Date</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono">
+                      {formatDateDisplay(endDate)}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">License Quantity</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono">
+                      {total} Total Seats
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Seat Usage</span>
+                    <div className="text-sm font-bold text-emerald-700 font-mono">
+                      {used} Used / {remaining} Remaining
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* SECTION 3: DEPARTMENT COMPLETION ANALYTICS CHART (FULL WIDTH) */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
