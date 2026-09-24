@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
+const { getCachedOrgLicenseValidity } = require('../services/licenseService');
 
 const protect = async (req, res, next) => {
   try {
@@ -26,6 +27,21 @@ const protect = async (req, res, next) => {
       role: decoded.role,
       organizationId: decoded.organizationId
     });
+
+    if (req.user.role !== 'SuperAdmin' && req.user.organizationId) {
+      const orgId = typeof req.user.organizationId === 'object'
+        ? (req.user.organizationId.id || req.user.organizationId._id)
+        : req.user.organizationId;
+
+      if (orgId) {
+        const validity = await getCachedOrgLicenseValidity(orgId);
+        if (!validity.isValid) {
+          const err = new ApiError(403, validity.message);
+          err.errorCode = validity.errorCode;
+          throw err;
+        }
+      }
+    }
 
     next();
   } catch (error) {

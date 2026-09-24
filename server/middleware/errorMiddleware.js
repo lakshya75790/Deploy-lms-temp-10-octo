@@ -3,6 +3,7 @@ const ApiError = require('../utils/apiError');
 const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
+  let errorCode = err.errorCode || (typeof err.code === 'string' && !err.code.startsWith('P') ? err.code : null);
 
   if (statusCode !== 401 && statusCode !== 403 && statusCode !== 404) {
     console.error('API Error:', err);
@@ -42,6 +43,7 @@ const errorHandler = (err, req, res, next) => {
   res.status(statusCode).json({
     success: false,
     message,
+    ...(errorCode && { errorCode }),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 };

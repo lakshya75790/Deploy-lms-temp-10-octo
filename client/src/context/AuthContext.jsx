@@ -39,8 +39,11 @@ export const AuthProvider = ({ children }) => {
       return u;
     } catch (err) {
       const msg = err.response?.data?.message || (err.code === 'ERR_NETWORK' ? 'Unable to connect to server' : 'Login failed');
+      const errorCode = err.response?.data?.errorCode || null;
       setError(msg);
-      throw new Error(msg);
+      const customErr = new Error(msg);
+      customErr.errorCode = errorCode;
+      throw customErr;
     }
   };
 
@@ -53,8 +56,11 @@ export const AuthProvider = ({ children }) => {
       return u;
     } catch (err) {
       const msg = err.response?.data?.message || (err.code === 'ERR_NETWORK' ? 'Unable to connect to server' : 'Organization setup failed');
+      const errorCode = err.response?.data?.errorCode || null;
       setError(msg);
-      throw new Error(msg);
+      const customErr = new Error(msg);
+      customErr.errorCode = errorCode;
+      throw customErr;
     }
   };
 
@@ -67,8 +73,11 @@ export const AuthProvider = ({ children }) => {
       return u;
     } catch (err) {
       const msg = err.response?.data?.message || (err.code === 'ERR_NETWORK' ? 'Unable to connect to server' : 'Registration failed');
+      const errorCode = err.response?.data?.errorCode || null;
       setError(msg);
-      throw new Error(msg);
+      const customErr = new Error(msg);
+      customErr.errorCode = errorCode;
+      throw customErr;
     }
   };
 
