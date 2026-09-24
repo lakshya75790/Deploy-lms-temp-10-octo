@@ -2,7 +2,6 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Prisma requires OpenSSL
 RUN apk add --no-cache openssl
 
 COPY package*.json ./
@@ -18,9 +17,7 @@ RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma Client
 RUN npx prisma generate
-
 
 FROM node:20-alpine AS runner
 
@@ -28,33 +25,25 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Required by Prisma
 RUN apk add --no-cache openssl curl
 
-# Copy package files
 COPY --from=builder /app/package*.json ./
-
-# Copy production dependencies
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy application
-COPY --from=builder /app/src ./src
-
-# Copy Prisma schema and generated Prisma client
+# Copy the actual LMS backend
+COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/prisma ./prisma
 
-# Copy any other required configuration files
-COPY --from=builder /app/package.json ./package.json
+# Copy the backend directories used by the application
+COPY --from=builder /app/controllers ./controllers
+COPY --from=builder /app/routes ./routes
+COPY --from=builder /app/middleware ./middleware
+COPY --from=builder /app/services ./services
+COPY --from=builder /app/utils ./utils
 
-# Generate Prisma Client in final image
-RUN npx prisma generate
-
-# Backend port
 EXPOSE 5000
 
-# Container health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl --fail http://127.0.0.1:5000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:5000/api/health || exit 1
 
-# Start backend
 CMD ["npm", "start"]
