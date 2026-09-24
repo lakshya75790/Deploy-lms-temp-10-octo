@@ -1607,7 +1607,7 @@ EOF
 
                             error "❌ ${targetName} ALB target did not become healthy within 3 minutes."
                         }
-
+//comment
                         return true
                     }
 
