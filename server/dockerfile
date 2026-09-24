@@ -15,8 +15,10 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 COPY --from=deps /app/node_modules ./node_modules
+
 COPY . .
 
+# Generate Prisma Client
 RUN npx prisma generate
 
 FROM node:20-alpine AS runner
@@ -27,22 +29,18 @@ ENV NODE_ENV=production
 
 RUN apk add --no-cache openssl curl
 
+# Package files
 COPY --from=builder /app/package*.json ./
+
+# Dependencies
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy the actual LMS backend
-COPY --from=builder /app/server.js ./server.js
-COPY --from=builder /app/prisma ./prisma
-
-# Copy the backend directories used by the application
-COPY --from=builder /app/controllers ./controllers
-COPY --from=builder /app/routes ./routes
-COPY --from=builder /app/middleware ./middleware
-COPY --from=builder /app/services ./services
-COPY --from=builder /app/utils ./utils
+# Complete backend application
+COPY --from=builder /app ./
 
 EXPOSE 5000
 
+# LMS backend health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:5000/api/health || exit 1
 

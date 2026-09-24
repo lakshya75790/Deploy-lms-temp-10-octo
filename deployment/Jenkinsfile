@@ -601,7 +601,7 @@ EOF
                 "healthCheck": {
                     "command": [
                         "CMD-SHELL",
-                        "curl --fail --silent http://127.0.0.1:5000/api/health > /dev/null || exit 1"
+                        "curl --fail --silent http://127.0.0.1:5000/api/health || exit 1"
                     ],
                     "interval": 30,
                     "timeout": 5,
