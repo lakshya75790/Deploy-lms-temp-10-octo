@@ -682,7 +682,7 @@ EOF
                     if (!frontendTaskDefinitionArn) {
                         error "❌ Failed to register frontend task definition."
                     }
-
+//test
                     env.FRONTEND_TASK_DEFINITION_ARN = frontendTaskDefinitionArn
 
                     echo "✅ Frontend task definition registered:"
