@@ -3,7 +3,7 @@ import { getAuditLogs } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { useNotification } from '../../context/NotificationContext';
-import { formatAuditAction, formatTargetEntity, formatAuditDate } from '../../utils/formatters';
+import { formatAuditAction, formatTargetEntity, formatAuditDate, formatDisplayText } from '../../utils/formatters';
 import {
   ShieldAlert,
   Search,
@@ -58,6 +58,7 @@ export const AuditLogs = () => {
     const rawAction = (log.action || '').toLowerCase();
     const rawActionUpper = (log.action || '').toUpperCase();
     const details = (log.details || '').toLowerCase();
+    const formattedDetails = formatDisplayText(log.details || '').toLowerCase();
     const userName = (log.userName || log.userId?.name || '').toLowerCase();
     const userEmail = (log.userId?.email || '').toLowerCase();
     const targetType = (log.targetType || '').toLowerCase();
@@ -70,6 +71,7 @@ export const AuditLogs = () => {
       formattedAction.includes(searchTerm) ||
       rawAction.includes(searchTerm) ||
       details.includes(searchTerm) ||
+      formattedDetails.includes(searchTerm) ||
       userName.includes(searchTerm) ||
       userEmail.includes(searchTerm) ||
       targetType.includes(searchTerm) ||
@@ -248,7 +250,7 @@ export const AuditLogs = () => {
               <option value="ALL">All User Roles</option>
               <option value="Admin">Admin</option>
               <option value="Instructor">Instructor</option>
-              <option value="Employee">Employee</option>
+              <option value="Employee">Learner</option>
             </select>
           </div>
 
@@ -296,6 +298,7 @@ export const AuditLogs = () => {
                   const humanAction = formatAuditAction(log.action);
                   const humanTarget = formatTargetEntity(log.targetType);
                   const formattedTimestamp = formatAuditDate(log.timestamp || log.createdAt);
+                  const roleDisplay = formatDisplayText(log.userRole || log.userId?.role);
 
                   return (
                     <tr
@@ -320,7 +323,7 @@ export const AuditLogs = () => {
                           />
                           <div>
                             <p className="font-bold text-slate-900">{log.userName || log.userId?.name}</p>
-                            <p className="text-[10px] text-slate-500 font-medium">{log.userRole || log.userId?.role}</p>
+                            <p className="text-[10px] text-slate-500 font-medium">{roleDisplay}</p>
                           </div>
                         </div>
                       </td>
@@ -334,7 +337,7 @@ export const AuditLogs = () => {
 
                       {/* Event Details Column */}
                       <td className="p-4 text-slate-600 max-w-md truncate">
-                        {log.details || 'No additional details logged.'}
+                        {formatDisplayText(log.details) || 'No additional details logged.'}
                       </td>
 
                       {/* Timestamp Column */}

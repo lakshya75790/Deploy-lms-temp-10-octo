@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
+import { formatDisplayText } from '../../utils/formatters';
 import {
   Bell,
   CheckCheck,
@@ -181,12 +182,12 @@ export const NotificationsPage = () => {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <h4 className="text-sm font-bold text-slate-900 truncate">{n.title}</h4>
+                  <h4 className="text-sm font-bold text-slate-900 truncate">{formatDisplayText(n.title)}</h4>
                   <span className="text-[10px] text-slate-400 flex-shrink-0 font-mono">
                     {new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                <p className="text-xs text-slate-600 leading-relaxed mb-2">{n.message}</p>
+                <p className="text-xs text-slate-600 leading-relaxed mb-2">{formatDisplayText(n.message)}</p>
 
                 <div className="flex items-center space-x-2">
                   {!n.isRead && (

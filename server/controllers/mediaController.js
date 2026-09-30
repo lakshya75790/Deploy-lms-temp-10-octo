@@ -3,6 +3,84 @@ const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 
 /**
+ * Extract Cloudinary publicId and resourceType from either a raw public_id or full Cloudinary URL
+ */
+const extractCloudinaryAssetInfo = (input, fallbackResourceType = 'image') => {
+  if (!input || typeof input !== 'string') {
+    return { publicId: null, resourceType: fallbackResourceType };
+  }
+
+  const str = input.trim();
+
+  if (str.startsWith('http://') || str.startsWith('https://')) {
+    try {
+      const urlObj = new URL(str);
+      const pathParts = urlObj.pathname.split('/');
+      const uploadIdx = pathParts.findIndex(p => p === 'upload');
+
+      if (uploadIdx !== -1 && uploadIdx + 1 < pathParts.length) {
+        let detectedResourceType = fallbackResourceType;
+        if (uploadIdx > 0 && ['image', 'video', 'raw'].includes(pathParts[uploadIdx - 1])) {
+          detectedResourceType = pathParts[uploadIdx - 1];
+        }
+
+        let targetParts = pathParts.slice(uploadIdx + 1);
+        if (targetParts[0] && /^v\d+$/.test(targetParts[0])) {
+          targetParts = targetParts.slice(1);
+        }
+
+        let extractedPublicId = targetParts.join('/');
+        if (detectedResourceType === 'image' || detectedResourceType === 'video') {
+          extractedPublicId = extractedPublicId.replace(/\.[^/.]+$/, '');
+        }
+
+        return {
+          publicId: extractedPublicId,
+          resourceType: detectedResourceType
+        };
+      }
+    } catch (err) {
+      console.warn('[extractCloudinaryAssetInfo] Failed to parse URL:', err.message);
+    }
+  }
+
+  return {
+    publicId: str,
+    resourceType: fallbackResourceType
+  };
+};
+
+/**
+ * Execute verified Cloudinary deletion for a publicId or URL
+ */
+const deleteMediaAsset = async (publicIdOrUrl, requestedResourceType = 'image') => {
+  const { publicId, resourceType } = extractCloudinaryAssetInfo(publicIdOrUrl, requestedResourceType);
+
+  if (!publicId) {
+    throw new ApiError(400, 'Cloudinary publicId or valid media URL is required');
+  }
+
+  try {
+    const cloudinaryInstance = getCloudinary();
+    const destroyResult = await cloudinaryInstance.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      invalidate: true
+    });
+
+    console.log(`[CloudinaryDelete] Asset: '${publicId}', ResourceType: '${resourceType}', Result:`, destroyResult);
+
+    if (destroyResult.result === 'ok' || destroyResult.result === 'not found') {
+      return { success: true, result: destroyResult.result, publicId, resourceType };
+    }
+
+    throw new Error(`Cloudinary status: ${destroyResult.result || 'error'}`);
+  } catch (err) {
+    console.error(`[CloudinaryDelete Error] Asset: '${publicId}', ResourceType: '${resourceType}':`, err.message || err);
+    throw new ApiError(500, `Unable to delete the file from Cloudinary: ${err.message || 'Server error'}`);
+  }
+};
+
+/**
  * Perform direct Cloudinary upload with proper resource-type timeouts
  */
 const uploadToCloudinary = (file, folder, resourceType = 'auto') => {
@@ -18,11 +96,10 @@ const uploadToCloudinary = (file, folder, resourceType = 'auto') => {
         resource_type: resourceType
       };
 
-      // Set generous timeout based on resource type
       if (resourceType === 'video') {
-        options.timeout = 120000; // 120 seconds (2 minutes) for videos
+        options.timeout = 120000;
       } else {
-        options.timeout = 30000; // 30 seconds for images & raw files
+        options.timeout = 30000;
       }
 
       const uploadStream = cloudinaryInstance.uploader.upload_stream(
@@ -66,7 +143,8 @@ const uploadImage = async (req, res, next) => {
         200,
         {
           url: result.url,
-          publicId: result.publicId
+          publicId: result.publicId,
+          public_id: result.publicId
         },
         'Image uploaded successfully'
       )
@@ -95,6 +173,7 @@ const uploadVideo = async (req, res, next) => {
         {
           url: result.url,
           publicId: result.publicId,
+          public_id: result.publicId,
           duration: result.duration || 0
         },
         'Video uploaded successfully'
@@ -124,6 +203,7 @@ const uploadPdf = async (req, res, next) => {
         {
           url: result.url,
           publicId: result.publicId,
+          public_id: result.publicId,
           originalName: req.file.originalname
         },
         'Document uploaded successfully'
@@ -137,24 +217,20 @@ const uploadPdf = async (req, res, next) => {
 /**
  * @desc    Delete Media Asset
  * @route   POST /api/media/delete
- * @access  Private (Instructor, Admin)
+ * @access  Private (Instructor, Admin, Employee)
  */
 const deleteMedia = async (req, res, next) => {
   try {
-    const { publicId, resourceType } = req.body;
+    const { publicId, public_id, url, resourceType } = req.body;
+    const target = publicId || public_id || url;
 
-    if (!publicId) {
-      throw new ApiError(400, 'publicId is required');
+    if (!target) {
+      throw new ApiError(400, 'publicId or file URL is required for deletion');
     }
 
-    try {
-      const cloudinaryInstance = getCloudinary();
-      await cloudinaryInstance.uploader.destroy(publicId, { resource_type: resourceType || 'image' });
-    } catch (err) {
-      console.warn('[MediaDelete] Cloudinary destroy warning:', err.message);
-    }
+    const deleteResult = await deleteMediaAsset(target, resourceType || 'image');
 
-    res.status(200).json(new ApiResponse(200, {}, 'Media asset deleted successfully'));
+    res.status(200).json(new ApiResponse(200, deleteResult, 'Media asset deleted successfully from Cloudinary'));
   } catch (error) {
     next(error);
   }
@@ -164,5 +240,7 @@ module.exports = {
   uploadImage,
   uploadVideo,
   uploadPdf,
-  deleteMedia
+  deleteMedia,
+  deleteMediaAsset,
+  extractCloudinaryAssetInfo
 };

@@ -27,7 +27,7 @@ export const Departments = () => {
       const res = await getDepartments();
       setDepartments(res.data.data.departments || []);
     } catch (err) {
-      addToast('error', 'Failed to fetch departments');
+      addToast('error', 'Failed to fetch groups');
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ export const Departments = () => {
     e.preventDefault();
     const cleanName = name.trim();
     if (!cleanName) {
-      addToast('error', 'Department name is required');
+      addToast('error', 'Group name is required');
       return;
     }
 
@@ -89,7 +89,7 @@ export const Departments = () => {
     );
 
     if (isDuplicate) {
-      addToast('error', `Department '${cleanName}' already exists. Please use a different name.`);
+      addToast('error', `Group '${cleanName}' already exists. Please use a different name.`);
       return;
     }
 
@@ -108,7 +108,7 @@ export const Departments = () => {
         } else {
           fetchDepts();
         }
-        addToast('success', 'Department updated successfully');
+        addToast('success', 'Group updated successfully');
         invalidateQueries(['departments', 'admin-dashboard']);
       } else {
         const res = await createDepartment({ name: cleanName, description: description.trim(), jobRoles });
@@ -123,7 +123,7 @@ export const Departments = () => {
         } else {
           fetchDepts();
         }
-        addToast('success', 'Department created successfully');
+        addToast('success', 'Group created successfully');
         invalidateQueries(['departments', 'admin-dashboard']);
       }
       setShowModal(false);
@@ -135,14 +135,14 @@ export const Departments = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to deactivate this department?')) return;
+    if (!window.confirm('Are you sure you want to deactivate this group?')) return;
     try {
       await deleteDepartment(id);
       setDepartments(prev => prev.filter(d => (d._id || d.id) !== id));
-      addToast('success', 'Department deleted');
+      addToast('success', 'Group deleted');
       invalidateQueries(['departments', 'admin-dashboard']);
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to deactivate department');
+      addToast('error', err.response?.data?.message || 'Failed to deactivate group');
     }
   };
 
@@ -151,9 +151,9 @@ export const Departments = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Departments & Job Roles</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Groups & Roles</h1>
           <p className="text-xs text-slate-500">
-            Define organizational departments and job roles for automated training assignment.
+            Organize learners into groups and define roles for streamlined training assignment.
           </p>
         </div>
         <button
@@ -161,20 +161,20 @@ export const Departments = () => {
           className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4 mr-1.5" />
-          Add Department
+          Add Group
         </button>
       </div>
 
       {loading ? (
-        <LoadingSpinner text="Loading departments..." />
+        <LoadingSpinner text="Loading groups..." />
       ) : departments.length === 0 ? (
         <EmptyState
           icon={Building2}
-          title="No Departments Created"
-          description="Create your first department to organize employees and map job roles."
+          title="No Groups Created"
+          description="Create your first group to organize learners and map roles."
           action={
             <button onClick={openCreateModal} className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs">
-              Create Department
+              Create Group
             </button>
           }
         />
@@ -200,14 +200,14 @@ export const Departments = () => {
                       <button
                         onClick={() => openEditModal(d)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                        title="Edit Department"
+                        title="Edit Group"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(deptId)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="Deactivate Department"
+                        title="Deactivate Group"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -215,18 +215,18 @@ export const Departments = () => {
                   </div>
 
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    {d.description || 'No department description provided.'}
+                    {d.description || 'No group description provided.'}
                   </p>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 space-y-2">
                   <p className="text-[11px] font-semibold text-slate-700 flex items-center">
                     <Briefcase className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                    Mapped Job Roles ({d.jobRoles?.length || 0}):
+                    Mapped Roles ({d.jobRoles?.length || 0}):
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {(!d.jobRoles || d.jobRoles.length === 0) ? (
-                      <span className="text-[11px] text-slate-400 italic">No job roles mapped yet.</span>
+                      <span className="text-[11px] text-slate-400 italic">No roles mapped yet.</span>
                     ) : (
                       d.jobRoles.map((role) => (
                         <span key={role} className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700">
@@ -243,18 +243,18 @@ export const Departments = () => {
       )}
 
       {/* Create/Edit Modal */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingDept ? 'Edit Department Details' : 'Create New Department'}>
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingDept ? 'Edit Group Details' : 'Create New Group'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Department Name <span className="text-rose-500">*</span>
+              Group Name <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              placeholder="e.g. Engineering, Human Resources, Finance"
+              placeholder="e.g. Engineering, Class 10-A, JEE Morning Batch"
               className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
             />
           </div>
@@ -267,14 +267,14 @@ export const Departments = () => {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Brief description of department scope and responsibilities..."
+              placeholder="Brief description of group scope and responsibilities..."
               className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none resize-none"
             />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Mapped Job Roles
+              Mapped Roles
             </label>
             <div className="flex space-x-2 mb-2">
               <input
@@ -282,7 +282,7 @@ export const Departments = () => {
                 value={roleInput}
                 onChange={(e) => setRoleInput(e.target.value)}
                 onKeyDown={handleRoleKeyDown}
-                placeholder="e.g. Frontend Engineer, Full Stack Developer"
+                placeholder="e.g. Student, Developer, Teacher"
                 className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
               />
               <button
@@ -296,7 +296,7 @@ export const Departments = () => {
 
             <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 min-h-[52px]">
               {jobRoles.length === 0 ? (
-                <span className="text-xs text-slate-400 italic p-1">No job roles added yet. Type a role above and click 'Add Role'.</span>
+                <span className="text-xs text-slate-400 italic p-1">No roles added yet. Type a role above and click 'Add Role'.</span>
               ) : (
                 jobRoles.map((role) => (
                   <span key={role} className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700">
@@ -330,7 +330,7 @@ export const Departments = () => {
               className="px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all inline-flex items-center cursor-pointer"
             >
               <Check className="w-4 h-4 mr-1.5" />
-              {submitting ? 'Saving Department...' : editingDept ? 'Update Department' : 'Create Department'}
+              {submitting ? 'Saving Group...' : editingDept ? 'Update Group' : 'Create Group'}
             </button>
           </div>
         </form>

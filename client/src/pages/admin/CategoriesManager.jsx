@@ -109,9 +109,9 @@ export const CategoriesManager = () => {
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Training Categories</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Course Categories</h1>
           <p className="text-xs text-slate-500">
-            Organize trainings into categories like Compliance, Technical Skills, Security, Onboarding, etc.
+            Organize courses into categories like Compliance, Technical Skills, Security, Onboarding, etc.
           </p>
         </div>
         <button
@@ -126,7 +126,7 @@ export const CategoriesManager = () => {
       {loading ? (
         <LoadingSpinner text="Loading categories..." />
       ) : categories.length === 0 ? (
-        <EmptyState icon={FolderKanban} title="No Categories Created" description="Add categories to classify organization training courses." />
+        <EmptyState icon={FolderKanban} title="No Categories Created" description="Add categories to classify organization courses." />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {categories.map((c) => {

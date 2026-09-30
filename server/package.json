@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
+    "dev": "node --watch --watch-path=server.js --watch-path=app.js --watch-path=controllers --watch-path=routes --watch-path=services --watch-path=middleware --watch-path=config --watch-path=utils server.js",
     "prisma:generate": "prisma generate",
     "prisma:db-push": "prisma db push",
     "prisma:studio": "prisma studio"

@@ -244,16 +244,16 @@ export const AssignTraining = () => {
 
     if (targetMode === 'dept_role') {
       if (!departmentId) {
-        addToast('error', 'Please select a Department');
+        addToast('error', 'Please select a Group');
         return;
       }
       if (matchedDeptRoleEmployees.length === 0) {
-        addToast('error', 'No active employees match the selected department and job role criteria');
+        addToast('error', 'No active learners match the selected group and role criteria');
         return;
       }
     } else {
       if (selectedEmployeeIds.length === 0) {
-        addToast('error', 'Please select at least one employee from the list');
+        addToast('error', 'Please select at least one learner from the list');
         return;
       }
     }
@@ -302,13 +302,13 @@ export const AssignTraining = () => {
         <div className="relative z-10 space-y-1.5 max-w-2xl">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-xs font-bold backdrop-blur-xs">
             <Zap className="w-3.5 h-3.5 mr-1.5 text-emerald-300" />
-            Enterprise Dispatch Center
+            Training Assignment Engine
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-heading">
             Training Assignment Engine
           </h1>
           <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-            Configure compulsory organization-wide auto-assignments or dispatch targeted course assignments to departments, roles, and individual employees.
+            Configure organization-wide, group-based, role-based, or individual training assignments for learners.
           </p>
         </div>
 
@@ -330,7 +330,7 @@ export const AssignTraining = () => {
           }`}
         >
           <Zap className="w-4 h-4 mr-2 text-amber-500" />
-          <span>Compulsory Auto Assignment</span>
+          <span>Automatic Training Assignment</span>
           {activeAutoRulesCount > 0 && (
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold border border-amber-200">
               {activeAutoRulesCount} Active
@@ -347,7 +347,7 @@ export const AssignTraining = () => {
           }`}
         >
           <Target className="w-4 h-4 mr-2 text-emerald-600" />
-          <span>Targeted Course Dispatch</span>
+          <span>Targeted Training Assignment</span>
         </button>
       </div>
 
@@ -361,10 +361,10 @@ export const AssignTraining = () => {
           <div className="p-5 rounded-2xl bg-purple-50/70 border border-purple-200/90 text-purple-950 space-y-2 shadow-xs">
             <div className="flex items-center space-x-2 font-bold text-purple-900 text-sm font-heading">
               <Sparkles className="w-4 h-4 text-purple-600" />
-              <span>Compulsory Organization Auto-Assignment Rule Engine</span>
+              <span>Automatic Training Assignment</span>
             </div>
             <p className="text-xs text-purple-800 leading-relaxed max-w-4xl">
-              Automatically assign compulsory compliance training (e.g. POSH, Workplace Ethics, InfoSec, Company Policies) to <strong>ALL existing employees immediately</strong>, and to <strong>ALL future employees</strong> as soon as they register and complete their account.
+              Automatically assign selected mandatory training to all current and newly added learners.
             </p>
           </div>
 
@@ -376,7 +376,7 @@ export const AssignTraining = () => {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 text-base font-heading">
-                  Configure New Auto-Assignment Rule
+                  Configure Automatic Training Assignment
                 </h3>
                 <p className="text-xs text-slate-500">
                   Select a published training course and set mandatory deadline days
@@ -402,7 +402,7 @@ export const AssignTraining = () => {
                     required
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
                   >
-                    <option value="">Choose Compulsory Published Training</option>
+                    <option value="">Choose Mandatory Published Course</option>
                     {trainings.map(t => (
                       <option key={t._id} value={t._id}>
                         {t.title} ({t.category?.name || 'General'})
@@ -425,7 +425,7 @@ export const AssignTraining = () => {
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Employees receive this exact deadline window starting from when the training is automatically assigned to them.
+                    Learners receive this exact deadline window starting from when the training is automatically assigned to them.
                   </p>
                 </div>
 
@@ -436,7 +436,7 @@ export const AssignTraining = () => {
                     className="py-2.5 px-5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-all inline-flex items-center cursor-pointer disabled:opacity-50"
                   >
                     <Zap className="w-4 h-4 mr-2" />
-                    {submittingAuto ? 'Enabling Auto-Assignment...' : 'Enable Compulsory Auto-Assignment'}
+                    {submittingAuto ? 'Enabling Auto-Assignment...' : 'Enable Automatic Training Assignment'}
                   </button>
                 </div>
               </form>
@@ -466,7 +466,7 @@ export const AssignTraining = () => {
               <EmptyState
                 icon={Zap}
                 title="No Auto Assignments Configured"
-                description="Configure an auto-assignment rule above to automatically assign compulsory courses to all employees."
+                description="Configure an auto-assignment rule above to automatically assign compulsory courses to all learners."
               />
             ) : (
               <div className="overflow-x-auto">
@@ -493,7 +493,7 @@ export const AssignTraining = () => {
                         </td>
                         <td className="px-4 py-3.5 font-semibold text-slate-700">
                           <span className="px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">
-                            {rule.coverageCount || 0} Employees
+                            {rule.coverageCount || 0} Learners
                           </span>
                         </td>
                         <td className="px-4 py-3.5">
@@ -551,10 +551,10 @@ export const AssignTraining = () => {
             </div>
             <div>
               <h3 className="font-bold text-slate-900 text-base font-heading">
-                Dispatch Targeted Training Assignment
+                Targeted Training Assignment
               </h3>
               <p className="text-xs text-slate-500">
-                Select target criteria by Department & Role or individual employee picker
+                Assign training to learners based on groups, roles, or individual selection.
               </p>
             </div>
           </div>
@@ -578,7 +578,7 @@ export const AssignTraining = () => {
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
                 >
-                  <option value="">Choose Published Training Course</option>
+                  <option value="">Choose Published Course</option>
                   {trainings.map(t => (
                     <option key={t._id} value={t._id}>
                       {t.title} ({t.category?.name || 'General'})
@@ -606,7 +606,7 @@ export const AssignTraining = () => {
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-sm text-slate-900 flex items-center">
                         <Building2 className="w-4 h-4 mr-2 text-emerald-600" />
-                        Option A: Dept & Job Role Match
+                        Option A: Group & Role Match
                       </span>
                       <input
                         type="radio"
@@ -617,7 +617,7 @@ export const AssignTraining = () => {
                       />
                     </div>
                     <p className="text-xs text-slate-500">
-                      Assign this course to all employees matching a department and job role.
+                      Assign this course to all learners matching a group and role.
                     </p>
                   </div>
 
@@ -633,7 +633,7 @@ export const AssignTraining = () => {
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-sm text-slate-900 flex items-center">
                         <Users className="w-4 h-4 mr-2 text-teal-600" />
-                        Option B: Individual Employee Picker
+                        Option B: Individual Learner Selection
                       </span>
                       <input
                         type="radio"
@@ -644,7 +644,7 @@ export const AssignTraining = () => {
                       />
                     </div>
                     <p className="text-xs text-slate-500">
-                      Select one or more specific employees from a searchable list.
+                      Select one or more specific learners from a searchable list.
                     </p>
                   </div>
                 </div>
@@ -655,7 +655,7 @@ export const AssignTraining = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Select Department *
+                          Select Group *
                         </label>
                         <select
                           value={departmentId}
@@ -663,7 +663,7 @@ export const AssignTraining = () => {
                           required={targetMode === 'dept_role'}
                           className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
                         >
-                          <option value="">Choose Department</option>
+                          <option value="">Choose Group</option>
                           {departments.map(d => (
                             <option key={d._id} value={d._id}>{d.name}</option>
                           ))}
@@ -672,7 +672,7 @@ export const AssignTraining = () => {
 
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Select Job Role *
+                          Select Role *
                         </label>
                         <select
                           value={jobRole}
@@ -684,10 +684,10 @@ export const AssignTraining = () => {
                           }`}
                         >
                           {!departmentId ? (
-                            <option value="">Select Department First</option>
+                            <option value="">Select Group First</option>
                           ) : (
                             <>
-                              <option value="ALL_ROLES">All Job Roles in Department</option>
+                              <option value="ALL_ROLES">All Roles in Group</option>
                               {availableJobRoles.map(r => (
                                 <option key={r} value={r}>{r}</option>
                               ))}
@@ -703,20 +703,20 @@ export const AssignTraining = () => {
                       }`}>
                         <span className="flex items-center">
                           <Users className="w-4 h-4 mr-2" />
-                          Matched Active Employees in Organization:
+                          Matched Active Learners:
                         </span>
-                        <span className="font-bold text-sm">{matchedDeptRoleEmployees.length} Employees</span>
+                        <span className="font-bold text-sm">{matchedDeptRoleEmployees.length} Learners</span>
                       </div>
                     )}
                   </div>
                 ) : (
-                  /* Option B: Individual Employees Selection Card */
+                  /* Option B: Individual Selection Card */
                   <div className="space-y-3 pt-2">
                     <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
                         <h4 className="font-bold text-xs uppercase tracking-wider text-slate-800 flex items-center">
                           <Users className="w-4 h-4 mr-1.5 text-indigo-600" />
-                          Select Employees ({selectedEmployeeIds.length} Selected)
+                          Select Learners ({selectedEmployeeIds.length} Selected)
                         </h4>
 
                         <div className="flex items-center space-x-2">
@@ -744,7 +744,7 @@ export const AssignTraining = () => {
                           type="text"
                           value={employeeSearch}
                           onChange={(e) => setEmployeeSearch(e.target.value)}
-                          placeholder="Search employees by name, email, department, or job role..."
+                          placeholder="Search learners by name, email, group, or role..."
                           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:border-indigo-600 outline-none"
                         />
                       </div>
@@ -752,7 +752,7 @@ export const AssignTraining = () => {
                       {/* Employee List with Checkboxes */}
                       <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
                         {filteredEmployeesForSelection.length === 0 ? (
-                          <p className="text-xs text-slate-400 text-center py-6">No matching employees found.</p>
+                          <p className="text-xs text-slate-400 text-center py-6">No matching learners found.</p>
                         ) : (
                           filteredEmployeesForSelection.map((emp) => {
                             const isSelected = selectedEmployeeIds.includes(emp._id);
@@ -784,7 +784,7 @@ export const AssignTraining = () => {
 
                                 <div className="text-right text-[11px]">
                                   <p className="font-semibold text-indigo-600">
-                                    {emp.departmentId?.name || 'No Dept'}
+                                    {emp.departmentId?.name || 'No Group'}
                                   </p>
                                   <p className="text-slate-400">{emp.jobRole || 'No Role'}</p>
                                 </div>
@@ -841,7 +841,7 @@ export const AssignTraining = () => {
               <h3 className="font-bold text-slate-900 text-base font-heading">
                 Recent Dispatched Assignments
               </h3>
-              <p className="text-xs text-slate-500">Real-time log of assigned training courses across employees</p>
+              <p className="text-xs text-slate-500">Real-time log of assigned training courses across learners</p>
             </div>
           </div>
           <span className="text-xs text-slate-500 font-semibold">
@@ -861,7 +861,7 @@ export const AssignTraining = () => {
               <thead className="text-[11px] uppercase bg-slate-50 text-slate-500 font-bold tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3">Training Course</th>
-                  <th className="px-4 py-3">Assigned Employee</th>
+                  <th className="px-4 py-3">Assigned Learner</th>
                   <th className="px-4 py-3">Target Type</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Deadline</th>
@@ -874,7 +874,7 @@ export const AssignTraining = () => {
                     {/* Course */}
                     <td className="px-4 py-3.5">
                       <div className="font-bold text-sm text-slate-900">
-                        {a.trainingId?.title || 'Training Course'}
+                        {a.trainingId?.title || 'Course'}
                       </div>
                       <div className="text-xs font-medium text-indigo-600">
                         {a.trainingId?.categoryId?.name || 'General'}
@@ -890,7 +890,7 @@ export const AssignTraining = () => {
                           className="w-7 h-7 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
                         />
                         <div>
-                          <p className="font-bold text-slate-900">{a.employeeId?.name || 'Employee'}</p>
+                          <p className="font-bold text-slate-900">{a.employeeId?.name || 'Learner'}</p>
                           <p className="text-[11px] text-slate-400">{a.employeeId?.email}</p>
                         </div>
                       </div>
@@ -947,12 +947,12 @@ export const AssignTraining = () => {
                 Compulsory Training Rule
               </span>
               <h4 className="text-sm font-extrabold text-slate-900">
-                {selectedRule.trainingId?.title || 'Training Course'}
+                {selectedRule.trainingId?.title || 'Course'}
               </h4>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Future eligible employees will no longer receive this training automatically while this rule is inactive.
+              Future eligible learners will no longer receive this training automatically while this rule is inactive.
             </p>
 
             <div className="pt-3 border-t border-slate-200 flex items-center justify-end space-x-3">
@@ -991,12 +991,12 @@ export const AssignTraining = () => {
                 Compulsory Training Rule
               </span>
               <h4 className="text-sm font-extrabold text-slate-900">
-                {selectedRule.trainingId?.title || 'Training Course'}
+                {selectedRule.trainingId?.title || 'Course'}
               </h4>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              This will reactivate automatic assignment for this training for future eligible employees.
+              This will reactivate automatic assignment for this training for future eligible learners.
             </p>
 
             <div className="pt-3 border-t border-slate-200 flex items-center justify-end space-x-3">

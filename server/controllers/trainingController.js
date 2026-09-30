@@ -1,6 +1,7 @@
 const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
+const { deleteMediaAsset } = require('./mediaController');
 
 /**
  * Helper to fetch a populated training record matching the Mongoose structure expected by frontend
@@ -483,16 +484,28 @@ const saveFullCourse = async (req, res, next) => {
         }
       }
 
-      // Clean up deleted subSections & sections
+      // Clean up deleted subSections & sections and destroy their Cloudinary assets
       if (trainingId) {
         const removedSubSecs = await prisma.trainingSubSection.findMany({
           where: {
             section: { trainingId: training.id },
             id: { notIn: activeSubSectionIds }
           },
-          select: { id: true }
+          include: { pdfResources: true }
         });
         if (removedSubSecs.length > 0) {
+          for (const subSec of removedSubSecs) {
+            if (subSec.videoPublicId || subSec.videoUrl) {
+              await deleteMediaAsset(subSec.videoPublicId || subSec.videoUrl, 'video').catch(e => console.warn('Failed to delete removed subSection video from Cloudinary:', e.message));
+            }
+            if (subSec.pdfResources && subSec.pdfResources.length > 0) {
+              for (const pdf of subSec.pdfResources) {
+                if (pdf.pdfPublicId || pdf.pdfUrl) {
+                  await deleteMediaAsset(pdf.pdfPublicId || pdf.pdfUrl, 'raw').catch(e => console.warn('Failed to delete removed pdfResource from Cloudinary:', e.message));
+                }
+              }
+            }
+          }
           await prisma.trainingSubSection.deleteMany({
             where: { id: { in: removedSubSecs.map(s => s.id) } }
           });
@@ -1052,6 +1065,24 @@ const deleteSection = async (req, res, next) => {
       throw new ApiError(403, 'Not authorized');
     }
 
+    const subSecsInSec = await prisma.trainingSubSection.findMany({
+      where: { section: { id: secId, trainingId: training.id } },
+      include: { pdfResources: true }
+    });
+
+    for (const subSec of subSecsInSec) {
+      if (subSec.videoPublicId || subSec.videoUrl) {
+        await deleteMediaAsset(subSec.videoPublicId || subSec.videoUrl, 'video').catch(e => console.warn('Failed to delete section video asset:', e.message));
+      }
+      if (subSec.pdfResources && subSec.pdfResources.length > 0) {
+        for (const pdf of subSec.pdfResources) {
+          if (pdf.pdfPublicId || pdf.pdfUrl) {
+            await deleteMediaAsset(pdf.pdfPublicId || pdf.pdfUrl, 'raw').catch(e => console.warn('Failed to delete section pdf resource:', e.message));
+          }
+        }
+      }
+    }
+
     await prisma.trainingSection.deleteMany({
       where: { id: secId, trainingId: training.id }
     });
@@ -1221,9 +1252,26 @@ const deleteSubSection = async (req, res, next) => {
     });
     if (!section) throw new ApiError(404, 'Section not found');
 
-    await prisma.trainingSubSection.deleteMany({
-      where: { id: subSecId, sectionId: section.id }
+    const subSecToDelete = await prisma.trainingSubSection.findFirst({
+      where: { id: subSecId, sectionId: section.id },
+      include: { pdfResources: true }
     });
+
+    if (subSecToDelete) {
+      if (subSecToDelete.videoPublicId || subSecToDelete.videoUrl) {
+        await deleteMediaAsset(subSecToDelete.videoPublicId || subSecToDelete.videoUrl, 'video').catch(e => console.warn('Failed to delete lecture video asset:', e.message));
+      }
+      if (subSecToDelete.pdfResources && subSecToDelete.pdfResources.length > 0) {
+        for (const pdf of subSecToDelete.pdfResources) {
+          if (pdf.pdfPublicId || pdf.pdfUrl) {
+            await deleteMediaAsset(pdf.pdfPublicId || pdf.pdfUrl, 'raw').catch(e => console.warn('Failed to delete pdf resource asset:', e.message));
+          }
+        }
+      }
+      await prisma.trainingSubSection.delete({
+        where: { id: subSecToDelete.id }
+      });
+    }
 
     const updatedTraining = await getPopulatedTraining(training.id);
 

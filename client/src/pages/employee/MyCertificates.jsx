@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { getMyCertificates } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { useNotification } from '../../context/NotificationContext';
@@ -82,7 +83,7 @@ export const MyCertificates = () => {
           <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Professional Certifications</span>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading mt-1">My Training Certificates</h1>
           <p className="text-xs text-slate-500 mt-1">
-            View and download official PNG/PDF certificates earned upon completing assigned corporate trainings.
+            View and download official PNG/PDF certificates earned upon completing assigned trainings.
           </p>
         </div>
         <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
@@ -154,7 +155,7 @@ export const MyCertificates = () => {
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
                 <div className="flex items-center justify-center space-x-1.5 text-xs text-emerald-700 font-semibold">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Verified Corporate Certificate</span>
+                  <span>Verified Completion Certificate</span>
                 </div>
                 <div className="flex items-center space-x-2 pt-2">
                   <button
@@ -190,15 +191,21 @@ export const MyCertificates = () => {
       )}
 
       {/* FULL CERTIFICATE VIEW MODAL */}
-      {selectedCert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/75 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-5xl h-[88vh] max-h-[850px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 flex flex-col shadow-2xl overflow-hidden">
-            {/* Modal Header & Download Actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3 shrink-0">
+      {selectedCert && ReactDOM.createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-md animate-fade-in overflow-y-auto"
+          onClick={() => setSelectedCert(null)}
+        >
+          <div
+            className="relative w-full max-w-6xl h-[84vh] sm:h-[88vh] max-h-[820px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col shadow-2xl overflow-hidden my-auto shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 sm:pb-4 gap-3 shrink-0">
               <div className="min-w-0 pr-2">
-                <span className="text-[11px] font-bold text-emerald-700 font-mono">{selectedCert.certificateId}</span>
+                <span className="text-[11px] font-bold text-emerald-700 font-mono tracking-wider">{selectedCert.certificateId}</span>
                 <h2
-                  className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 truncate"
+                  className="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 truncate"
                   title={`${selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}${selectedCert.training?.title || ''}`}
                 >
                   {selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}
@@ -208,22 +215,9 @@ export const MyCertificates = () => {
 
               <div className="flex items-center space-x-2 shrink-0">
                 <button
-                  onClick={() => handleDownload(selectedCert, 'PNG')}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <Download className="w-4 h-4 mr-1.5" /> Download PNG
-                </button>
-
-                <button
-                  onClick={() => handleDownload(selectedCert, 'PDF')}
-                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 mr-1.5" /> Download PDF
-                </button>
-
-                <button
                   onClick={() => setSelectedCert(null)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                  aria-label="Close Certificate View"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -231,15 +225,16 @@ export const MyCertificates = () => {
             </div>
 
             {/* FULL RESOLUTION AUTO-ZOOM CANVAS CONTAINER */}
-            <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-5 flex items-center justify-center bg-slate-50 border border-slate-200/80 rounded-2xl overflow-hidden mt-4">
+            <div className="flex-1 min-h-0 min-w-0 p-2 sm:p-4 flex items-center justify-center bg-slate-900/5 border border-slate-200/80 rounded-xl overflow-hidden mt-3 sm:mt-4">
               <CertificateCanvas
                 certificate={selectedCert}
                 elementId={`cert_view_${selectedCert.id}`}
-                className="max-h-full max-w-full"
+                className="w-full h-full"
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { useNotification } from '../../context/NotificationContext';
+import { formatDisplayText } from '../../utils/formatters';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 export const ToastContainer = () => {
@@ -29,8 +30,8 @@ export const ToastContainer = () => {
               {!isSuccess && !isError && <Info className="w-5 h-5 text-indigo-600" />}
             </div>
             <div className="flex-1 text-xs sm:text-sm">
-              {toast.title && <h4 className="font-bold text-slate-900 mb-0.5">{toast.title}</h4>}
-              <p className="text-slate-700 font-medium leading-relaxed">{toast.message}</p>
+              {toast.title && <h4 className="font-bold text-slate-900 mb-0.5">{formatDisplayText(toast.title)}</h4>}
+              <p className="text-slate-700 font-medium leading-relaxed">{formatDisplayText(toast.message)}</p>
             </div>
             <button
               onClick={() => removeToast(toast.id)}

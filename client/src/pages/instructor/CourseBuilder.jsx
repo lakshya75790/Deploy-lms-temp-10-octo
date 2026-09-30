@@ -6,8 +6,10 @@ import {
   getCategories,
   uploadImage,
   uploadVideo,
-  uploadPdf
+  uploadPdf,
+  deleteMedia
 } from '../../services/api';
+import { validateImageFile, validateVideoFile, validateDocumentFile } from '../../utils/fileValidation';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { Modal } from '../../components/common/Modal';
 import { useNotification } from '../../context/NotificationContext';
@@ -193,18 +195,46 @@ export const CourseBuilder = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     setUploadingThumb(true);
     try {
       const res = await uploadImage(formData);
+      const newPublicId = res.data.data.publicId || res.data.data.public_id || res.data.data.url;
+      const oldTarget = thumbnailPublicId || thumbnailUrl;
+      if (oldTarget && oldTarget !== newPublicId) {
+        deleteMedia(oldTarget, 'image').catch(err => console.warn('Failed to delete old thumbnail from Cloudinary:', err));
+      }
       setThumbnailUrl(res.data.data.url);
-      setThumbnailPublicId(res.data.data.public_id);
+      setThumbnailPublicId(newPublicId);
       addToast('success', 'Thumbnail uploaded successfully!');
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to upload thumbnail');
     } finally {
       setUploadingThumb(false);
+      e.target.value = null;
+    }
+  };
+
+  const handleDeleteThumbnail = async () => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    const target = thumbnailPublicId || thumbnailUrl;
+    try {
+      if (target) {
+        await deleteMedia(target, 'image');
+      }
+      setThumbnailUrl('');
+      setThumbnailPublicId('');
+      addToast('success', 'File deleted successfully.');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
     }
   };
 
@@ -277,18 +307,46 @@ export const CourseBuilder = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const validation = validateVideoFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     setUploadingVideo(true);
     try {
       const res = await uploadVideo(formData);
+      const newPublicId = res.data.data.publicId || res.data.data.public_id || res.data.data.url;
+      const oldTarget = lectureVideoPublicId || lectureVideoUrl;
+      if (oldTarget && oldTarget !== newPublicId) {
+        deleteMedia(oldTarget, 'video').catch(err => console.warn('Failed to delete old video from Cloudinary:', err));
+      }
       setLectureVideoUrl(res.data.data.url);
-      setLectureVideoPublicId(res.data.data.public_id);
+      setLectureVideoPublicId(newPublicId);
       addToast('success', 'Lecture video uploaded to Cloudinary!');
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to upload video');
     } finally {
       setUploadingVideo(false);
+      e.target.value = null;
+    }
+  };
+
+  const handleDeleteLectureVideo = async () => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    const target = lectureVideoPublicId || lectureVideoUrl;
+    try {
+      if (target) {
+        await deleteMedia(target, 'video');
+      }
+      setLectureVideoUrl('');
+      setLectureVideoPublicId('');
+      addToast('success', 'File deleted successfully.');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
     }
   };
 
@@ -320,8 +378,16 @@ export const CourseBuilder = () => {
     setShowLectureModal(false);
   };
 
-  const handleDeleteLecture = (sIdx, lIdx) => {
+  const handleDeleteLecture = async (sIdx, lIdx) => {
     if (!window.confirm('Are you sure you want to delete this lecture?')) return;
+    const lec = sections[sIdx].lectures[lIdx];
+    if (lec && lec.videoPublicId) {
+      try {
+        await deleteMedia(lec.videoPublicId, 'video');
+      } catch (err) {
+        console.warn('Failed to delete lecture video asset from Cloudinary:', err);
+      }
+    }
     const updated = [...sections];
     updated[sIdx].lectures = updated[sIdx].lectures.filter((_, i) => i !== lIdx);
     setSections(updated);
@@ -345,17 +411,34 @@ export const CourseBuilder = () => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
+    // Filter valid document files
+    const validFiles = [];
+    for (const file of files) {
+      const validation = validateDocumentFile(file);
+      if (!validation.valid) {
+        addToast('error', `${file.name}: ${validation.error}`);
+      } else {
+        validFiles.push(file);
+      }
+    }
+
+    if (validFiles.length === 0) {
+      e.target.value = null;
+      return;
+    }
+
     setUploadingPdf(true);
     try {
       const uploadedList = [];
-      for (const file of files) {
+      for (const file of validFiles) {
         const formData = new FormData();
         formData.append('file', file);
         const res = await uploadPdf(formData);
+        const pId = res.data.data.publicId || res.data.data.public_id || res.data.data.url;
         uploadedList.push({
           title: file.name,
           fileUrl: res.data.data.url,
-          filePublicId: res.data.data.public_id
+          filePublicId: pId
         });
       }
       setResources([...resources, ...uploadedList]);
@@ -364,11 +447,23 @@ export const CourseBuilder = () => {
       addToast('error', err.response?.data?.message || 'Failed to upload PDF resources');
     } finally {
       setUploadingPdf(false);
+      e.target.value = null;
     }
   };
 
-  const handleDeleteResource = (idx) => {
-    setResources(resources.filter((_, i) => i !== idx));
+  const handleDeleteResource = async (idx) => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    const targetRes = resources[idx];
+    try {
+      const target = targetRes?.filePublicId || targetRes?.pdfPublicId || targetRes?.fileUrl || targetRes?.pdfUrl;
+      if (target) {
+        await deleteMedia(target, 'raw');
+      }
+      setResources(resources.filter((_, i) => i !== idx));
+      addToast('success', 'File deleted successfully.');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
+    }
   };
 
   // STEP NAVIGATION VALIDATION
@@ -532,10 +627,10 @@ export const CourseBuilder = () => {
           </button>
           <div>
             <div className="inline-flex items-center text-[11px] font-bold text-emerald-700">
-              <Sparkles className="w-3 h-3 mr-1" /> {isEditMode ? 'Edit Training Course' : 'Create New Training Course'}
+              <Sparkles className="w-3 h-3 mr-1" /> {isEditMode ? 'Edit Course' : 'Create New Course'}
             </div>
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">
-              {title || 'Untitled Training Course'}
+              {title || 'Untitled Course'}
             </h1>
           </div>
         </div>
@@ -596,13 +691,13 @@ export const CourseBuilder = () => {
               <BookOpen className="w-5 h-5 mr-2 text-emerald-600" />
               Step 1: Basic Information
             </h2>
-            <p className="text-xs text-slate-500">Provide the title, category, description, and thumbnail for this training.</p>
+            <p className="text-xs text-slate-500">Provide the title, category, description, and thumbnail for this course.</p>
           </div>
 
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Training Title <span className="text-rose-500">*</span>
+                Course Title <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
@@ -647,7 +742,7 @@ export const CourseBuilder = () => {
             {/* Thumbnail Upload */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Training Thumbnail Image
+                Course Thumbnail Image
               </label>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
                 {thumbnailUrl ? (
@@ -658,11 +753,25 @@ export const CourseBuilder = () => {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
-                    <Upload className="w-4 h-4 mr-1.5" />
-                    {uploadingThumb ? 'Uploading...' : 'Upload Thumbnail Image'}
-                    <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" disabled={uploadingThumb} />
-                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+                      <Upload className="w-4 h-4 mr-1.5" />
+                      {uploadingThumb ? 'Uploading...' : 'Upload Thumbnail Image'}
+                      <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" disabled={uploadingThumb} />
+                    </label>
+
+                    {thumbnailUrl && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteThumbnail}
+                        disabled={uploadingThumb}
+                        className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Delete Image
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[11px] text-slate-500">Supports PNG, JPG, WEBP. Max file size 5MB.</p>
                 </div>
               </div>
@@ -671,7 +780,7 @@ export const CourseBuilder = () => {
             {/* Benefits Multi-Input */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Benefits of the Training
+                Benefits of the Course
               </label>
               <div className="flex items-center space-x-2 mb-3">
                 <input
@@ -720,7 +829,7 @@ export const CourseBuilder = () => {
                 <Layers className="w-5 h-5 mr-2 text-emerald-600" />
                 Step 2: Course Builder
               </h2>
-              <p className="text-xs text-slate-500">Structure your training into Sections and Add Video Lectures inside each section.</p>
+              <p className="text-xs text-slate-500">Structure your course into Sections and Add Video Lectures inside each section.</p>
             </div>
             <button
               onClick={openAddSectionModal}
@@ -840,7 +949,7 @@ export const CourseBuilder = () => {
                 className="w-5 h-5 text-amber-600 rounded cursor-pointer"
               />
               <div>
-                <span className="font-bold text-slate-900 text-sm">Add Quiz to this Training</span>
+                <span className="font-bold text-slate-900 text-sm">Add Quiz to this Course</span>
                 <p className="text-xs text-slate-500">Enable multiple choice questions to evaluate learner knowledge.</p>
               </div>
             </label>
@@ -1291,7 +1400,7 @@ export const CourseBuilder = () => {
               className="inline-flex items-center px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50"
             >
               <Send className="w-4 h-4 mr-1.5" />
-              {submitting ? 'Saving Changes...' : (isEditMode ? 'Save Changes' : 'Publish Training')}
+              {submitting ? 'Saving Changes...' : (isEditMode ? 'Save Changes' : 'Publish Course')}
             </button>
           )}
         </div>
@@ -1362,14 +1471,25 @@ export const CourseBuilder = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Video *</label>
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
                 <Upload className="w-4 h-4 mr-1.5 text-emerald-400" />
                 {uploadingVideo ? 'Uploading Video...' : 'Upload Video File'}
                 <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" disabled={uploadingVideo} />
               </label>
               {lectureVideoUrl && (
-                <span className="text-xs text-emerald-600 font-mono font-bold truncate max-w-xs">Video Attached</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-emerald-600 font-mono font-bold truncate max-w-xs">Video Attached</span>
+                  <button
+                    type="button"
+                    onClick={handleDeleteLectureVideo}
+                    disabled={uploadingVideo}
+                    className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    Delete Video
+                  </button>
+                </div>
               )}
             </div>
           </div>

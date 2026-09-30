@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { getInstructorCertificates } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { useNotification } from '../../context/NotificationContext';
@@ -90,7 +91,7 @@ export const InstructorCertificates = () => {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold tracking-wider text-[11px]">
                 <th className="p-4">Certificate ID</th>
                 <th className="p-4">Learner Name</th>
-                <th className="p-4">Department</th>
+                <th className="p-4">Group</th>
                 <th className="p-4">Course Title</th>
                 <th className="p-4">Completion Date</th>
                 <th className="p-4 text-right">Actions</th>
@@ -163,14 +164,20 @@ export const InstructorCertificates = () => {
       </div>
 
       {/* FULL VIEW MODAL */}
-      {selectedCert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/75 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-5xl h-[88vh] max-h-[850px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3 shrink-0">
+      {selectedCert && ReactDOM.createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-md animate-fade-in overflow-y-auto"
+          onClick={() => setSelectedCert(null)}
+        >
+          <div
+            className="relative w-full max-w-6xl h-[84vh] sm:h-[88vh] max-h-[820px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col shadow-2xl overflow-hidden my-auto shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 sm:pb-4 gap-3 shrink-0">
               <div className="min-w-0 pr-2">
-                <span className="text-[11px] font-bold text-amber-600 font-mono">{selectedCert.certificateId}</span>
+                <span className="text-[11px] font-bold text-amber-600 font-mono tracking-wider">{selectedCert.certificateId}</span>
                 <h2
-                  className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 truncate"
+                  className="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 truncate"
                   title={`${selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}${selectedCert.training?.title || ''}`}
                 >
                   {selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}
@@ -179,37 +186,25 @@ export const InstructorCertificates = () => {
               </div>
               <div className="flex items-center space-x-2 shrink-0">
                 <button
-                  onClick={() => exportCertificatePNG(`inst_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.png`)}
-                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <Download className="w-4 h-4 mr-1.5" /> Download PNG
-                </button>
-
-                <button
-                  onClick={() => exportCertificatePDF(`inst_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.pdf`)}
-                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 mr-1.5" /> Download PDF
-                </button>
-
-                <button
                   onClick={() => setSelectedCert(null)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                  aria-label="Close Certificate View"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-5 flex items-center justify-center bg-slate-50 border border-slate-200/80 rounded-2xl overflow-hidden mt-4">
+            <div className="flex-1 min-h-0 min-w-0 p-2 sm:p-4 flex items-center justify-center bg-slate-900/5 border border-slate-200/80 rounded-xl overflow-hidden mt-3 sm:mt-4">
               <CertificateCanvas
                 certificate={selectedCert}
                 elementId={`inst_cert_${selectedCert.id}`}
-                className="max-h-full max-w-full"
+                className="w-full h-full"
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

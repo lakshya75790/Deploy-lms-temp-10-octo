@@ -71,7 +71,7 @@ export const DeadlineManager = () => {
     setSubmitting(true);
     try {
       await extendDeadline(activeAssignment._id, { newDeadline, reason: extensionReason });
-      addToast('success', `Deadline extended for ${activeAssignment.employeeId?.name || 'Employee'}`);
+      addToast('success', `Deadline extended for ${activeAssignment.employeeId?.name || 'Learner'}`);
       setShowExtendModal(false);
       fetchAssignments();
     } catch (err) {
@@ -94,7 +94,7 @@ export const DeadlineManager = () => {
     setSubmitting(true);
     try {
       await lockTraining(activeAssignment._id, { reason: lockReason });
-      addToast('success', `Training locked for ${activeAssignment.employeeId?.name || 'Employee'}`);
+      addToast('success', `Training locked for ${activeAssignment.employeeId?.name || 'Learner'}`);
       setShowLockModal(false);
       fetchAssignments();
     } catch (err) {
@@ -116,7 +116,7 @@ export const DeadlineManager = () => {
     setSubmitting(true);
     try {
       await unlockTraining(activeAssignment._id);
-      addToast('success', `Training unlocked for ${activeAssignment.employeeId?.name || 'Employee'}`);
+      addToast('success', `Training unlocked for ${activeAssignment.employeeId?.name || 'Learner'}`);
       setShowUnlockModal(false);
       fetchAssignments();
     } catch (err) {
@@ -136,13 +136,13 @@ export const DeadlineManager = () => {
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Overdue & Lock Controls</h1>
           <p className="text-xs text-slate-500">
-            Monitor employee completion deadlines, grant individual extensions, and manage training access lock states.
+            Monitor learner completion deadlines, grant individual extensions, and manage training access lock states.
           </p>
         </div>
       </div>
 
       {loading ? (
-        <LoadingSpinner text="Fetching employee training assignments..." />
+        <LoadingSpinner text="Fetching learner training assignments..." />
       ) : assignments.length === 0 ? (
         <EmptyState icon={Clock} title="No Assignments Found" description="There are no active or overdue training assignments." />
       ) : (
@@ -151,7 +151,7 @@ export const DeadlineManager = () => {
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                 <tr>
-                  <th className="p-4">Employee</th>
+                  <th className="p-4">Learner</th>
                   <th className="p-4">Training Course</th>
                   <th className="p-4">Deadline</th>
                   <th className="p-4">Status & Lock State</th>
@@ -175,7 +175,7 @@ export const DeadlineManager = () => {
                             className="w-9 h-9 rounded-xl object-cover bg-slate-100 border border-slate-200"
                           />
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{a.employeeId?.name || 'Employee'}</p>
+                            <p className="font-bold text-slate-900 text-sm">{a.employeeId?.name || 'Learner'}</p>
                             <p className="text-[11px] text-slate-500">{a.employeeId?.email || ''}</p>
                           </div>
                         </div>
@@ -274,7 +274,7 @@ export const DeadlineManager = () => {
           <form onSubmit={handleExtendSubmit} className="space-y-4">
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
               <p className="text-slate-600">
-                Employee: <strong className="text-slate-900">{activeAssignment.employeeId?.name}</strong>
+                Learner: <strong className="text-slate-900">{activeAssignment.employeeId?.name}</strong>
               </p>
               <p className="text-slate-600">
                 Training: <strong className="text-emerald-700">{activeAssignment.trainingId?.title}</strong>

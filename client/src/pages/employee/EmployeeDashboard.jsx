@@ -91,7 +91,7 @@ export const EmployeeDashboard = () => {
             Welcome back, {user?.name}!
           </h1>
           <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-            Track your assigned corporate courses, completion progress, deadline alerts, and skill certifications.
+            Track your assigned courses, completion progress, deadline alerts, and skill certifications.
           </p>
         </div>
 
@@ -101,7 +101,7 @@ export const EmployeeDashboard = () => {
             className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer inline-flex items-center"
           >
             <BookOpen className="w-4 h-4 mr-2" />
-            My Trainings
+            My Courses
           </Link>
           <Link
             to="/employee/certificates"
@@ -198,7 +198,7 @@ export const EmployeeDashboard = () => {
               </span>
               <span className="text-2xl font-black text-emerald-700 font-heading">{overallProgress}%</span>
             </div>
-            <p className="text-xs text-slate-500">Cumulative completion percentage across all assigned corporate trainings</p>
+            <p className="text-xs text-slate-500">Cumulative completion percentage across all assigned courses</p>
           </div>
 
           <div className="space-y-3">
@@ -292,8 +292,8 @@ export const EmployeeDashboard = () => {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900 font-heading">Your Assigned Trainings</h2>
-            <p className="text-xs text-slate-500">Active corporate courses requiring completion</p>
+            <h2 className="text-lg font-extrabold text-slate-900 font-heading">Your Assigned Courses</h2>
+            <p className="text-xs text-slate-500">Active courses requiring completion</p>
           </div>
           <Link to="/employee/my-trainings" className="text-xs text-emerald-700 hover:underline font-semibold flex items-center">
             View All Courses <ArrowRight className="w-3.5 h-3.5 ml-1" />
@@ -301,7 +301,7 @@ export const EmployeeDashboard = () => {
         </div>
 
         {assignments.length === 0 ? (
-          <EmptyState icon={BookOpen} title="No Courses Assigned" description="You have no active training courses assigned to your profile." />
+          <EmptyState icon={BookOpen} title="No Courses Assigned" description="You have no active courses assigned to your profile." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {assignments.map((a) => {
@@ -347,7 +347,7 @@ export const EmployeeDashboard = () => {
 
                     <div className="p-5 space-y-3">
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">{a.category || 'Corporate Course'}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">{a.category || 'Training Course'}</span>
                         <h3 className="font-bold text-slate-900 text-base line-clamp-1 group-hover:text-emerald-700 transition-colors">{a.title}</h3>
                       </div>
 
@@ -395,7 +395,7 @@ export const EmployeeDashboard = () => {
                       ) : (
                         <>
                           <Play className="w-3.5 h-3.5 mr-1.5" />
-                          {statusLabel === 'Completed' ? 'Review Training' : statusLabel === 'In Progress' ? 'Resume Learning' : 'Start Learning'}
+                          {statusLabel === 'Completed' ? 'Review Course' : statusLabel === 'In Progress' ? 'Resume Learning' : 'Start Learning'}
                         </>
                       )}
                     </button>

@@ -49,10 +49,10 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
 
   const adminLinks = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/admin/departments', label: 'Departments & Roles', icon: Building2 },
+    { to: '/admin/departments', label: 'Groups & Roles', icon: Building2 },
     { to: '/admin/users', label: 'Users Directory & Status', icon: Users },
-    { to: '/admin/categories', label: 'Training Categories', icon: FolderKanban },
-    { to: '/admin/assign', label: 'Assign Training Engine', icon: UserPlus },
+    { to: '/admin/categories', label: 'Course Categories', icon: FolderKanban },
+    { to: '/admin/assign', label: 'Training Assignment Engine', icon: UserPlus },
     { to: '/admin/certificates', label: 'Certificates & Designer', icon: Award },
     { to: '/admin/reports', label: 'Org Reports & Analytics', icon: BarChart3 },
     { to: '/admin/notifications', label: 'Notifications', icon: Bell },
@@ -62,7 +62,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
 
   const instructorLinks = [
     { to: '/instructor', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/instructor/trainings', label: 'My Trainings & Syllabus', icon: BookOpen },
+    { to: '/instructor/trainings', label: 'My Courses & Syllabus', icon: BookOpen },
     { to: '/instructor/submissions', label: 'Assignment Submissions', icon: FileCheck2 },
     { to: '/instructor/certificates', label: 'Course Certificates', icon: Award },
     { to: '/instructor/deadlines', label: 'Overdue & Lock Controls', icon: Clock },
@@ -72,7 +72,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
 
   const employeeLinks = [
     { to: '/employee', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/employee/my-trainings', label: 'My Assigned Trainings', icon: GraduationCap },
+    { to: '/employee/my-trainings', label: 'My Assigned Courses', icon: GraduationCap },
     { to: '/employee/certificates', label: 'My Certificates', icon: Award },
     { to: '/employee/notifications', label: 'Notifications', icon: Bell },
     { to: '/employee/feedback', label: 'Feedback', icon: MessageSquare },

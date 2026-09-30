@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { ToastContainer } from '../components/common/Toast';
-import { ShieldCheck, Layers, GraduationCap, Sparkles, BookOpen } from 'lucide-react';
+import { GraduationCap, Sparkles, BookOpen, Layers, Award } from 'lucide-react';
 
 export const AuthLayout = () => {
   return (
@@ -26,51 +26,51 @@ export const AuthLayout = () => {
           </Link>
         </div>
 
-        {/* Center Content / Enterprise Value Proposition */}
+        {/* Center Content / Universal LMS Value Proposition */}
         <div className="relative z-10 my-6 sm:my-8 md:my-6 lg:my-0 space-y-6 lg:space-y-8 max-w-xl">
           <div className="space-y-3 sm:space-y-4">
             <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-xs font-bold backdrop-blur-xs">
               <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Next-Gen Workforce LMS</span>
+              <span>Smart Learning Platform</span>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white leading-[1.18] tracking-tight font-heading">
-              Enterprise Learning & Automated Compliance
+              Learning Made Smarter
             </h1>
 
             <p className="text-emerald-100/90 text-xs sm:text-sm leading-relaxed max-w-lg">
-              Streamline organizational growth with automated course assignments, interactive training players, automated assessments, and real-time department progress tracking.
+              A modern learning platform for schools, colleges, coaching institutes, training programs, and organizations to deliver courses, manage learning, track progress, and support better outcomes.
             </p>
           </div>
 
           {/* 3 Feature Value Points Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3 gap-3.5 pt-2">
-            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md">
+            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md hover:bg-[#064E3B]/90 transition-colors">
               <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-200">
                 <BookOpen className="w-4 h-4" />
               </div>
-              <h4 className="font-bold text-xs text-white">Interactive Courses</h4>
+              <h4 className="font-bold text-xs sm:text-sm text-white">Interactive Courses</h4>
               <p className="text-[11px] text-emerald-100/80 leading-normal">
-                Video & PDF syllabus with progress tracking.
+                Learn through engaging video, PDF, and structured course content with seamless progress tracking.
               </p>
             </div>
 
-            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md">
+            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md hover:bg-[#064E3B]/90 transition-colors">
               <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-teal-200">
                 <Layers className="w-4 h-4" />
               </div>
-              <h4 className="font-bold text-xs text-white">Auto Assignment</h4>
+              <h4 className="font-bold text-xs sm:text-sm text-white">Smart Assignments</h4>
               <p className="text-[11px] text-emerald-100/80 leading-normal">
-                Role & department based automatic enrollments.
+                Automatically assign courses based on groups, roles, or individual learners.
               </p>
             </div>
 
-            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md">
+            <div className="p-3.5 sm:p-4 md:p-3.5 lg:p-4 rounded-2xl bg-[#064E3B]/70 border border-emerald-500/30 space-y-1.5 sm:space-y-2 shadow-lg backdrop-blur-md hover:bg-[#064E3B]/90 transition-colors">
               <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-300">
-                <ShieldCheck className="w-4 h-4" />
+                <Award className="w-4 h-4" />
               </div>
-              <h4 className="font-bold text-xs text-white">Verified Certificates</h4>
+              <h4 className="font-bold text-xs sm:text-sm text-white">Progress & Certificates</h4>
               <p className="text-[11px] text-emerald-100/80 leading-normal">
-                Automated score evaluation & PDF certificates.
+                Track learning progress, assess performance, and provide verified course certificates.
               </p>
             </div>
           </div>
@@ -78,8 +78,8 @@ export const AuthLayout = () => {
 
         {/* Bottom Tagline */}
         <div className="relative z-10 pt-4 sm:pt-6 border-t border-emerald-700/50 hidden sm:block">
-          <p className="text-xs text-white font-semibold text-slate-400 leading-relaxed tracking-wide">
-            “Empowering modern organizations to build skills, improve performance, and maintain compliance.”
+          <p className="text-xs text-emerald-100/90 font-medium leading-relaxed tracking-wide">
+            “Empowering learners and learning teams to teach, learn, track progress, and achieve better outcomes.”
           </p>
         </div>
       </div>
@@ -93,6 +93,7 @@ export const AuthLayout = () => {
     </div>
   );
 };
+
 
 
 

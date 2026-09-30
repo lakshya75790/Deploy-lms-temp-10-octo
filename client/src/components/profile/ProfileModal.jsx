@@ -3,7 +3,8 @@ import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { updateProfile, updateProfilePicture, resetProfilePicture, getDepartments } from '../../services/api';
-import { Upload, RefreshCw, User, Briefcase, Building2, Check } from 'lucide-react';
+import { Upload, RefreshCw, Trash2, User, Briefcase, Building2, Check } from 'lucide-react';
+import { validateImageFile } from '../../utils/fileValidation';
 
 export const ProfileModal = ({ isOpen, onClose }) => {
   const { user, setUser } = useAuth();
@@ -68,6 +69,13 @@ export const ProfileModal = ({ isOpen, onClose }) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -82,17 +90,19 @@ export const ProfileModal = ({ isOpen, onClose }) => {
       addToast('error', err.response?.data?.message || 'Failed to upload profile picture');
     } finally {
       setUploadingPic(false);
+      e.target.value = null;
     }
   };
 
   const handleResetPic = async () => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
     setUploadingPic(true);
     try {
       const res = await resetProfilePicture();
       if (res.data?.data?.user) {
         setUser(res.data.data.user);
       }
-      addToast('success', 'Profile picture reset to default avatar');
+      addToast('success', 'File deleted successfully.');
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to reset profile picture');
     } finally {
@@ -136,10 +146,10 @@ export const ProfileModal = ({ isOpen, onClose }) => {
                   type="button"
                   onClick={handleResetPic}
                   disabled={uploadingPic}
-                  className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors"
+                  className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-                  Reset Avatar
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" />
+                  Delete Image
                 </button>
               )}
             </div>
@@ -175,7 +185,7 @@ export const ProfileModal = ({ isOpen, onClose }) => {
           {user?.role === 'Employee' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Department</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Group</label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <select
@@ -183,7 +193,7 @@ export const ProfileModal = ({ isOpen, onClose }) => {
                     onChange={handleDeptChange}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                   >
-                    <option value="">Select Department</option>
+                    <option value="">Select Group</option>
                     {departments.map(d => (
                       <option key={d._id} value={d._id}>{d.name}</option>
                     ))}
@@ -192,7 +202,7 @@ export const ProfileModal = ({ isOpen, onClose }) => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Job Role</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Role</label>
                 <div className="relative">
                   <Briefcase className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <select

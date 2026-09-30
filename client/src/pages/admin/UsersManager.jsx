@@ -117,7 +117,7 @@ export const UsersManager = () => {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Users & Status Management</h1>
           <p className="text-xs text-slate-500">
-            Manage organization employees, instructors, admins, and active/deactivated statuses.
+            Manage organization learners, instructors, admins, and active/deactivated statuses.
           </p>
         </div>
 
@@ -166,7 +166,7 @@ export const UsersManager = () => {
             activeTab === 'employees' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          Employees Directory ({employees.length})
+          Learners Directory ({employees.length})
         </button>
         <button
           onClick={() => setActiveTab('instructors')}
@@ -182,15 +182,15 @@ export const UsersManager = () => {
         <LoadingSpinner text="Loading users directory..." />
       ) : activeTab === 'employees' ? (
         employees.length === 0 ? (
-          <EmptyState icon={Users} title="No Employees Registered" description="Employees can register publicly using your organization code." />
+          <EmptyState icon={Users} title="No Learners Registered" description="Learners can register publicly using your organization code." />
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
-                    <th className="p-4">Employee</th>
-                    <th className="p-4">Department & Role</th>
+                    <th className="p-4">Learner</th>
+                    <th className="p-4">Group & Role</th>
                     <th className="p-4">Profile Status</th>
                     <th className="p-4">Account Status</th>
                     <th className="p-4 text-right">Actions</th>
@@ -288,7 +288,7 @@ export const UsersManager = () => {
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 text-xs text-slate-500">
-                  <p>Department: <span className="text-emerald-600 font-semibold">{inst.departmentId?.name || 'General Instructor'}</span></p>
+                  <p>Group: <span className="text-emerald-600 font-semibold">{inst.departmentId?.name || 'General Instructor'}</span></p>
                 </div>
               </div>
             ))}
@@ -345,13 +345,13 @@ export const UsersManager = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned Department (Optional)</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned Group (Optional)</label>
             <select
               value={departmentId}
               onChange={(e) => setDepartmentId(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
             >
-              <option value="">All Departments / General</option>
+              <option value="">All Groups / General</option>
               {departments.map(d => (
                 <option key={d._id} value={d._id}>{d.name}</option>
               ))}

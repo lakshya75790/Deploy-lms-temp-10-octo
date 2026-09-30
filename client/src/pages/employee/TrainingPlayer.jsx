@@ -15,6 +15,7 @@ import {
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { useNotification } from '../../context/NotificationContext';
 import { useFocusMode } from '../../context/FocusContext';
+import { validateDocumentFile } from '../../utils/fileValidation';
 import { formatDate } from '../../utils/formatters';
 import {
   ArrowLeft,
@@ -539,6 +540,13 @@ export const TrainingPlayer = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const validation = validateDocumentFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     setUploadingFile(true);
@@ -550,6 +558,7 @@ export const TrainingPlayer = () => {
       addToast('error', err.response?.data?.message || 'Failed to upload file');
     } finally {
       setUploadingFile(false);
+      e.target.value = null;
     }
   };
 
@@ -924,13 +933,12 @@ export const TrainingPlayer = () => {
                             <div
                               className="bg-emerald-500 h-full rounded-lg transition-all duration-75"
                               style={{
-                                width: `${
-                                  duration > 0
+                                width: `${duration > 0
                                     ? (currentTime >= duration || (videoRef.current && videoRef.current.ended)
                                       ? 100
                                       : Math.min(100, Math.round((currentTime / duration) * 100)))
                                     : 0
-                                }%`
+                                  }%`
                               }}
                             />
                           </div>
@@ -977,9 +985,8 @@ export const TrainingPlayer = () => {
                                 <button
                                   key={speed}
                                   onClick={() => handleSpeedChange(speed)}
-                                  className={`px-1.5 py-0.5 rounded cursor-pointer ${
-                                    playbackSpeed === speed ? 'bg-emerald-600 text-white font-bold' : 'hover:bg-slate-800 text-slate-300'
-                                  }`}
+                                  className={`px-1.5 py-0.5 rounded cursor-pointer ${playbackSpeed === speed ? 'bg-emerald-600 text-white font-bold' : 'hover:bg-slate-800 text-slate-300'
+                                    }`}
                                 >
                                   {speed}x
                                 </button>
@@ -1013,14 +1020,12 @@ export const TrainingPlayer = () => {
               ) : quizSubmitted && quizResult ? (
                 /* QUIZ RESULT SCREEN */
                 <div className="space-y-6">
-                  <div className={`p-6 rounded-2xl border text-center space-y-2 ${
-                    quizResult.passed
+                  <div className={`p-6 rounded-2xl border text-center space-y-2 ${quizResult.passed
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                       : 'bg-rose-50 text-rose-800 border-rose-200'
-                  }`}>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      quizResult.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
                     }`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${quizResult.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                      }`}>
                       {quizResult.passed ? '✓ PASSED' : '✕ FAILED'}
                     </span>
                     <h3 className="text-2xl font-black">{quizResult.percentage}% Score</h3>
@@ -1046,13 +1051,12 @@ export const TrainingPlayer = () => {
                         <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-slate-900">Question {idx + 1}: {ans.questionText}</span>
-                            <span className={`px-2.5 py-0.5 rounded font-bold text-[10px] ${
-                              ans.isCorrect
+                            <span className={`px-2.5 py-0.5 rounded font-bold text-[10px] ${ans.isCorrect
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 : isUnanswered
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-rose-50 text-rose-700 border border-rose-200'
-                            }`}>
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
                               {ans.isCorrect ? '✓ Correct' : isUnanswered ? '○ Not Answered' : '✕ Incorrect'}
                             </span>
                           </div>
@@ -1202,7 +1206,7 @@ export const TrainingPlayer = () => {
                             <h2 className="text-xl font-black text-slate-900 mt-1">{quizData.title}</h2>
                           </div>
                         </div>
-                        
+
                         {quizTimeRemaining !== null && (
                           <div className="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-mono text-lg font-bold shadow-md flex items-center">
                             <Clock className="w-5 h-5 mr-2 text-emerald-400" />
@@ -1250,15 +1254,13 @@ export const TrainingPlayer = () => {
                                       {currentQ.options?.map((opt, optIdx) => (
                                         <label
                                           key={optIdx}
-                                          className={`flex items-center p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${
-                                            selectedAnswers[currentQuestionIdx] === optIdx
+                                          className={`flex items-center p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${selectedAnswers[currentQuestionIdx] === optIdx
                                               ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-sm'
                                               : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50'
-                                          }`}
+                                            }`}
                                         >
-                                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 ${
-                                            selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300'
-                                          }`}>
+                                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 ${selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300'
+                                            }`}>
                                             {selectedAnswers[currentQuestionIdx] === optIdx && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />}
                                           </div>
                                           <input
@@ -1279,11 +1281,10 @@ export const TrainingPlayer = () => {
                                       <button
                                         type="button"
                                         onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 0 })}
-                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
-                                          selectedAnswers[currentQuestionIdx] === 0
+                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 0
                                             ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-sm'
                                             : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50'
-                                        }`}
+                                          }`}
                                       >
                                         <span className="text-2xl">✓</span>
                                         <span>True</span>
@@ -1291,11 +1292,10 @@ export const TrainingPlayer = () => {
                                       <button
                                         type="button"
                                         onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 1 })}
-                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
-                                          selectedAnswers[currentQuestionIdx] === 1
+                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 1
                                             ? 'bg-rose-50 border-rose-500 text-rose-900 shadow-sm'
                                             : 'bg-white border-slate-200 text-slate-700 hover:border-rose-300 hover:bg-slate-50'
-                                        }`}
+                                          }`}
                                       >
                                         <span className="text-2xl">✕</span>
                                         <span>False</span>
@@ -1325,7 +1325,7 @@ export const TrainingPlayer = () => {
                                     >
                                       ← Previous
                                     </button>
-                                    
+
                                     <button
                                       onClick={() => {
                                         setMarkedForReview(prev => ({
@@ -1333,11 +1333,10 @@ export const TrainingPlayer = () => {
                                           [currentQuestionIdx]: !prev[currentQuestionIdx]
                                         }));
                                       }}
-                                      className={`px-4 py-3 rounded-xl border text-sm font-bold cursor-pointer transition-colors flex items-center ${
-                                        markedForReview[currentQuestionIdx]
+                                      className={`px-4 py-3 rounded-xl border text-sm font-bold cursor-pointer transition-colors flex items-center ${markedForReview[currentQuestionIdx]
                                           ? 'bg-amber-50 border-amber-400 text-amber-800 hover:bg-amber-100'
                                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                      }`}
+                                        }`}
                                     >
                                       <span className="mr-2">🚩</span>
                                       {markedForReview[currentQuestionIdx] ? 'Marked for Review' : 'Mark for Review'}
@@ -1361,26 +1360,25 @@ export const TrainingPlayer = () => {
                           <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider mb-6 pb-4 border-b border-slate-100">
                             Question Navigator
                           </h3>
-                          
+
                           <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-5 gap-2 mb-8">
                             {quizData.questions?.map((_, idx) => {
                               const isAnswered = selectedAnswers[idx] !== undefined && selectedAnswers[idx] !== null && selectedAnswers[idx] !== '';
                               const isCurrent = idx === currentQuestionIdx;
                               const isReview = markedForReview[idx];
-                              
+
                               return (
                                 <button
                                   key={idx}
                                   onClick={() => setCurrentQuestionIdx(idx)}
-                                  className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${
-                                    isCurrent
+                                  className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${isCurrent
                                       ? 'border-slate-900 bg-slate-900 text-white shadow-md transform scale-110'
                                       : isReview
-                                      ? 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                                      : isAnswered
-                                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50'
-                                  }`}
+                                        ? 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                        : isAnswered
+                                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                          : 'border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50'
+                                    }`}
                                 >
                                   {idx + 1}
                                 </button>
@@ -1415,9 +1413,9 @@ export const TrainingPlayer = () => {
                     </div>
                   )}
                 </div>
-        )}
-      </div>
-    ) : activeItem?.type === 'assignment' ? (
+              )}
+            </div>
+          ) : activeItem?.type === 'assignment' ? (
             /* INTEGRATED ASSIGNMENT VIEW */
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
               {!assignmentDetails ? (
@@ -1442,11 +1440,10 @@ export const TrainingPlayer = () => {
                         <button
                           type="button"
                           onClick={() => setSubmissionType('github')}
-                          className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                            submissionType === 'github'
+                          className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${submissionType === 'github'
                               ? 'bg-teal-50 border-teal-300 text-teal-700'
                               : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
+                            }`}
                         >
                           <Code2 className="w-4 h-4" />
                           <span>Option 1: GitHub Repository Link</span>
@@ -1454,11 +1451,10 @@ export const TrainingPlayer = () => {
                         <button
                           type="button"
                           onClick={() => setSubmissionType('file')}
-                          className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                            submissionType === 'file'
+                          className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${submissionType === 'file'
                               ? 'bg-teal-50 border-teal-300 text-teal-700'
                               : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
+                            }`}
                         >
                           <Upload className="w-4 h-4" />
                           <span>Option 2: File Upload</span>
@@ -1503,11 +1499,10 @@ export const TrainingPlayer = () => {
                             <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-600" />
                             Assignment Submitted
                           </span>
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            existingSubmission.status === 'reviewed'
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${existingSubmission.status === 'reviewed'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
+                            }`}>
                             {existingSubmission.status === 'reviewed' ? '✓ Reviewed' : 'Pending Review'}
                           </span>
                         </div>
@@ -1581,22 +1576,21 @@ export const TrainingPlayer = () => {
                 <button
                   onClick={handleMarkComplete}
                   disabled={isBtnDisabled}
-                  className={`px-5 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center ${
-                    activeStatus.isCompleted
+                  className={`px-5 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center ${activeStatus.isCompleted
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default font-bold'
                       : isVideoIncomplete
-                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
-                  }`}
+                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
+                    }`}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-1.5" />
                   {activeStatus.isCompleted
                     ? '✓ Completed'
                     : submittingComplete
-                    ? 'Updating...'
-                    : isVideoIncomplete
-                    ? 'Watch Video to Complete'
-                    : 'Mark as Complete'}
+                      ? 'Updating...'
+                      : isVideoIncomplete
+                        ? 'Watch Video to Complete'
+                        : 'Mark as Complete'}
                 </button>
               );
             })()}
@@ -1668,15 +1662,14 @@ export const TrainingPlayer = () => {
                               if (!status.isLocked) setActiveItem(item);
                             }}
                             disabled={status.isLocked}
-                            className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${
-                              isCurrent
+                            className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${isCurrent
                                 ? 'bg-emerald-600 text-white font-bold shadow-xs'
                                 : status.isCompleted
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
-                                : status.isLocked
-                                ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
-                                : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
-                            }`}
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
+                                  : status.isLocked
+                                    ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
+                                    : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
+                              }`}
                           >
                             <div className="flex items-center space-x-2.5 truncate">
                               {status.isCompleted ? (
@@ -1720,15 +1713,14 @@ export const TrainingPlayer = () => {
                         if (!status.isLocked) setActiveItem(assignmentItem);
                       }}
                       disabled={status.isLocked}
-                      className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${
-                        isCurrent
+                      className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${isCurrent
                           ? 'bg-teal-600 text-white font-bold shadow-xs'
                           : status.isCompleted
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
-                          : status.isLocked
-                          ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
-                          : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
-                      }`}
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
+                            : status.isLocked
+                              ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
+                              : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
+                        }`}
                     >
                       <div className="flex items-center space-x-2.5 truncate">
                         {status.isCompleted ? (

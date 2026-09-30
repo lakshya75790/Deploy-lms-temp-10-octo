@@ -3,17 +3,130 @@ import { formatDate } from '../../utils/formatters';
 import { jsPDF } from 'jspdf';
 
 /**
+ * Converts any image URL (remote HTTPS, local relative, or Blob URL) to a Base64 Data URL.
+ * Ensures CORS handling, cache-busting fallback, and asynchronous image loading before export.
+ */
+const fetchImageAsBase64 = async (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const url = rawUrl.trim();
+  if (!url) return null;
+  if (url.startsWith('data:')) return url;
+
+  // Resolve relative URLs to absolute HTTP/HTTPS URLs
+  let fullUrl = url;
+  if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('blob:')) {
+    fullUrl = window.location.origin + (url.startsWith('/') ? '' : '/') + url;
+  }
+
+  // Attempt 1: Fetch API with CORS mode (cleanest, preserves exact original image bytes & mime-type)
+  try {
+    const response = await fetch(fullUrl, { mode: 'cors' });
+    if (response.ok) {
+      const blob = await response.blob();
+      const base64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+      if (base64 && base64.startsWith('data:image')) {
+        return base64;
+      }
+    }
+  } catch (fetchErr) {
+    // Fetch failed (e.g. CORS mismatch), proceed to Canvas Image loading attempts
+  }
+
+  // Attempt 2: HTML Image + Canvas with crossOrigin="anonymous" and cache-busting query parameter
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    const cacheBustUrl = fullUrl.includes('?')
+      ? `${fullUrl}&_corsBust=${Date.now()}`
+      : `${fullUrl}?_corsBust=${Date.now()}`;
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width || 300;
+        canvas.height = img.naturalHeight || img.height || 150;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        resolve(dataUrl);
+      } catch (canvasErr) {
+        tryWithoutCors();
+      }
+    };
+
+    img.onerror = () => {
+      tryWithoutCors();
+    };
+
+    const tryWithoutCors = () => {
+      const plainImg = new Image();
+      plainImg.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = plainImg.naturalWidth || plainImg.width || 300;
+          canvas.height = plainImg.naturalHeight || plainImg.height || 150;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(plainImg, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      plainImg.onerror = () => resolve(null);
+      plainImg.src = fullUrl;
+    };
+
+    img.src = cacheBustUrl;
+  });
+};
+
+/**
  * Render SVG element onto an offscreen 2400x1700 canvas (2x resolution of 1200x850)
  */
-export const renderCertificateToCanvas = (svgId) => {
-  return new Promise((resolve) => {
-    const svgElement = document.getElementById(svgId);
-    if (!svgElement) {
-      console.error(`SVG element #${svgId} not found`);
-      return resolve(null);
-    }
+export const renderCertificateToCanvas = async (svgId) => {
+  let svgElement = document.getElementById(svgId);
 
-    const svgString = new XMLSerializer().serializeToString(svgElement);
+  // Retry finding SVG element in DOM (up to 10 attempts, 100ms interval) in case modal is mounting
+  if (!svgElement) {
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      svgElement = document.getElementById(svgId);
+      if (svgElement) break;
+    }
+  }
+
+  if (!svgElement) {
+    console.error(`SVG element #${svgId} not found in DOM`);
+    return null;
+  }
+
+  // Clone SVG element so we do not mutate the rendered DOM preview
+  const clonedSvg = svgElement.cloneNode(true);
+  const imageElements = Array.from(clonedSvg.querySelectorAll('image'));
+
+  // Pre-fetch and convert all external remote image URLs (logos, signatures, background, etc.) into embedded Base64 Data URLs
+  await Promise.all(
+    imageElements.map(async (imgEl) => {
+      const href = imgEl.getAttribute('href') || imgEl.getAttribute('xlink:href') || imgEl.getAttribute('src');
+      if (href && !href.startsWith('data:')) {
+        const base64 = await fetchImageAsBase64(href);
+        if (base64) {
+          imgEl.setAttribute('href', base64);
+          imgEl.setAttribute('xlink:href', base64);
+          imgEl.removeAttribute('src');
+        }
+      }
+    })
+  );
+
+  return new Promise((resolve) => {
+    const svgString = new XMLSerializer().serializeToString(clonedSvg);
     const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
 
@@ -148,7 +261,14 @@ export const CertificateCanvas = ({
   elementId = 'certificate-svg-canvas',
   className = ''
 }) => {
-  const snapshot = certificate?.templateSnapshot || templateSettings || {};
+  let snapshot = certificate?.templateSnapshot || templateSettings || {};
+  if (typeof snapshot === 'string') {
+    try {
+      snapshot = JSON.parse(snapshot);
+    } catch (e) {
+      snapshot = {};
+    }
+  }
 
   const orgName = certificate?.organization?.name || snapshot.organizationName || templateSettings?.organization?.name || sampleData?.organizationName || 'Enterprise Organization';
   const empName = certificate?.employee?.name || sampleData?.employeeName || 'John Doe';
@@ -162,13 +282,31 @@ export const CertificateCanvas = ({
   const selectedFont = snapshot.fontFamily || 'Inter';
   const borderStyle = snapshot.borderStyle || 'classic_gold';
 
-  const logoUrl = snapshot.logoUrl || sampleData?.logoUrl || null;
-  const logoPosition = (snapshot.logoPosition || sampleData?.logoPosition || 'center').toLowerCase();
-  const logoWidth = Number(snapshot.logoWidth || sampleData?.logoWidth || 130);
+  const logoUrl =
+    snapshot.logoUrl ||
+    certificate?.organization?.logoUrl ||
+    certificate?.organization?.logo ||
+    certificate?.logoUrl ||
+    templateSettings?.logoUrl ||
+    sampleData?.logoUrl ||
+    null;
+
+  const logoPosition = (snapshot.logoPosition || templateSettings?.logoPosition || sampleData?.logoPosition || 'center').toLowerCase();
+  const logoWidth = Number(snapshot.logoWidth || templateSettings?.logoWidth || sampleData?.logoWidth || 130);
   const logoHeight = Math.round(logoWidth * 0.45);
 
-  const signatureUrl = snapshot.signatureUrl || sampleData?.signatureUrl || null;
-  const signatureName = snapshot.signatureName !== undefined ? snapshot.signatureName : (sampleData?.signatureName || '');
+  const signatureUrl =
+    snapshot.signatureUrl ||
+    certificate?.organization?.signatureUrl ||
+    certificate?.organization?.signature ||
+    certificate?.signatureUrl ||
+    templateSettings?.signatureUrl ||
+    sampleData?.signatureUrl ||
+    null;
+
+  const signatureName = snapshot.signatureName !== undefined
+    ? snapshot.signatureName
+    : (certificate?.signatureName || templateSettings?.signatureName || sampleData?.signatureName || '');
 
   const fontFamily = `${selectedFont}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
   const formattedDate = formatDate(dateVal);
@@ -190,23 +328,20 @@ export const CertificateCanvas = ({
 
   return (
     <div
-      className={`relative bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 text-slate-900 mx-auto transition-all ${className}`}
-      style={{
-        aspectRatio: '1200 / 850',
-        maxWidth: '100%',
-        maxHeight: '100%',
-        width: 'auto',
-        height: 'auto'
-      }}
+      className={`relative text-slate-900 mx-auto flex items-center justify-center w-full h-full min-h-0 min-w-0 ${className}`}
     >
       <svg
         id={elementId}
         viewBox="0 0 1200 850"
-        width="1200"
-        height="850"
         preserveAspectRatio="xMidYMid meet"
-        className="w-full h-full object-contain select-none block"
-        style={{ fontFamily }}
+        className="w-full h-full object-contain select-none block drop-shadow-xl rounded-2xl"
+        style={{
+          fontFamily,
+          maxWidth: '100%',
+          maxHeight: '100%',
+          width: '100%',
+          height: '100%'
+        }}
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
@@ -320,6 +455,8 @@ export const CertificateCanvas = ({
           {logoUrl && (
             <image
               href={logoUrl}
+              xlinkHref={logoUrl}
+              crossOrigin="anonymous"
               x={logoX}
               y={logoY}
               width={logoWidth}
@@ -396,7 +533,7 @@ export const CertificateCanvas = ({
             fontSize="17"
             fontWeight="500"
           >
-            for successfully completing the official corporate training course
+            for successfully completing the official training course
           </text>
 
           {titleLines.map((line, idx) => (
@@ -445,6 +582,8 @@ export const CertificateCanvas = ({
             {signatureUrl && (
               <image
                 href={signatureUrl}
+                xlinkHref={signatureUrl}
+                crossOrigin="anonymous"
                 x="20"
                 y="-48"
                 width="180"
@@ -471,3 +610,4 @@ export const CertificateCanvas = ({
     </div>
   );
 };
+

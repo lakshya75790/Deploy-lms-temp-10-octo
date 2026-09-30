@@ -9,6 +9,7 @@ import {
   Briefcase,
   Upload,
   RefreshCw,
+  Trash2,
   KeyRound,
   Lock,
   Check,
@@ -18,6 +19,7 @@ import {
   ShieldCheck,
   Sparkles
 } from 'lucide-react';
+import { validateImageFile } from '../../utils/fileValidation';
 
 export const AccountSettingsPage = () => {
   const { user, setUser } = useAuth();
@@ -93,6 +95,13 @@ export const AccountSettingsPage = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -107,17 +116,19 @@ export const AccountSettingsPage = () => {
       addToast('error', err.response?.data?.message || 'Failed to upload profile picture');
     } finally {
       setUploadingPic(false);
+      e.target.value = null;
     }
   };
 
   const handleResetPic = async () => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
     setUploadingPic(true);
     try {
       const res = await resetProfilePicture();
       if (res.data?.data?.user) {
         setUser(res.data.data.user);
       }
-      addToast('success', 'Profile picture reset to default avatar');
+      addToast('success', 'File deleted successfully.');
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to reset profile picture');
     } finally {
@@ -225,10 +236,10 @@ export const AccountSettingsPage = () => {
                   type="button"
                   onClick={handleResetPic}
                   disabled={uploadingPic}
-                  className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
+                  className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-                  Reset to Default
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" />
+                  Delete Image
                 </button>
               )}
             </div>
@@ -273,7 +284,7 @@ export const AccountSettingsPage = () => {
           {user?.role === 'Employee' && (
             <div className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Department</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Group</label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                   <select
@@ -281,7 +292,7 @@ export const AccountSettingsPage = () => {
                     onChange={handleDeptChange}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
                   >
-                    <option value="">Select Department</option>
+                    <option value="">Select Group</option>
                     {departments.map((d) => (
                       <option key={d._id} value={d._id}>
                         {d.name}
@@ -292,7 +303,7 @@ export const AccountSettingsPage = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Job Role</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Role</label>
                 <div className="relative">
                   <Briefcase className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                   <select
@@ -301,7 +312,7 @@ export const AccountSettingsPage = () => {
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed cursor-pointer"
                     disabled={!departmentId}
                   >
-                    <option value="">Select Job Role</option>
+                    <option value="">Select Role</option>
                     {availableJobRoles.map((r) => (
                       <option key={r} value={r}>
                         {r}

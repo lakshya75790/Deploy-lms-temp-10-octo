@@ -1,15 +1,15 @@
 /**
  * Maps internal backend assignmentType enums to human-readable labels
- * - dept_role -> "Department & Job Role"
- * - specific / individual -> "Individual Employees"
- * - auto / mandatory -> "All Employees (Automatic)"
+ * - dept_role -> "Group & Role"
+ * - specific / individual -> "Individual Learners"
+ * - auto / mandatory -> "All Learners (Automatic)"
  */
 export const formatAssignmentType = (type) => {
   if (!type) return 'Unknown Target';
   const lower = String(type).toLowerCase();
-  if (lower === 'dept_role') return 'Department & Job Role';
-  if (lower === 'specific' || lower === 'individual') return 'Individual Employees';
-  if (lower === 'auto' || lower === 'mandatory') return 'All Employees (Automatic)';
+  if (lower === 'dept_role') return 'Group & Role';
+  if (lower === 'specific' || lower === 'individual') return 'Individual Learners';
+  if (lower === 'auto' || lower === 'mandatory') return 'All Learners (Automatic)';
   return type;
 };
 
@@ -40,6 +40,21 @@ export const formatAuditDate = (dateInput) => {
 };
 
 /**
+ * Utility to format user-facing text references of Employee/Employees to Learner/Learners.
+ * Preserves sentence casing and word boundaries.
+ */
+export const formatDisplayText = (text) => {
+  if (!text || typeof text !== 'string') return text || '';
+  return text
+    .replace(/\bEmployees\b/g, 'Learners')
+    .replace(/\bEmployee\b/g, 'Learner')
+    .replace(/\bemployees\b/g, 'learners')
+    .replace(/\bemployee\b/g, 'learner')
+    .replace(/\bEMPLOYEES\b/g, 'LEARNERS')
+    .replace(/\bEMPLOYEE\b/g, 'LEARNER');
+};
+
+/**
  * Maps backend audit action enums to human-readable titles
  */
 export const formatAuditAction = (action) => {
@@ -57,9 +72,17 @@ export const formatAuditAction = (action) => {
     CREATE_TRAINING: 'Create Training',
     UPDATE_TRAINING: 'Update Training',
     DELETE_TRAINING: 'Delete Training',
-    CREATE_EMPLOYEE: 'Create Employee',
-    UPDATE_EMPLOYEE: 'Update Employee',
-    DELETE_EMPLOYEE: 'Delete Employee',
+    CREATE_EMPLOYEE: 'Create Learner',
+    UPDATE_EMPLOYEE: 'Update Learner',
+    DELETE_EMPLOYEE: 'Delete Learner',
+    EMPLOYEE_CREATED: 'Learner Created',
+    EMPLOYEE_UPDATED: 'Learner Updated',
+    EMPLOYEE_DELETED: 'Learner Deleted',
+    EMPLOYEE_ACTIVATED: 'Learner Activated',
+    EMPLOYEE_DEACTIVATED: 'Learner Deactivated',
+    EMPLOYEE_ASSIGNED: 'Learner Assigned',
+    EMPLOYEE_ASSIGNED_TRAINING: 'Learner Assigned Training',
+    EMPLOYEE_COMPLETED_TRAINING: 'Learner Completed Training',
     CREATE_INSTRUCTOR: 'Create Instructor',
     UPDATE_INSTRUCTOR: 'Update Instructor',
     DELETE_INSTRUCTOR: 'Delete Instructor',
@@ -72,20 +95,24 @@ export const formatAuditAction = (action) => {
     LOGIN_SUCCESS: 'Successful Login',
     LOGIN_FAILED: 'Failed Login',
     SETUP_ORG: 'Organization Setup',
-    CREATE_DEPARTMENT: 'Create Department',
-    UPDATE_DEPARTMENT: 'Update Department',
-    DELETE_DEPARTMENT: 'Delete Department'
+    CREATE_DEPARTMENT: 'Create Group',
+    UPDATE_DEPARTMENT: 'Update Group',
+    DELETE_DEPARTMENT: 'Delete Group'
   };
 
-  if (actionMap[raw]) return actionMap[raw];
+  let result = actionMap[raw];
 
-  // Fallback formatter: convert ALL_CAPS_UNDERSCORE to Title Case
-  return raw
-    .toLowerCase()
-    .split('_')
-    .filter(Boolean)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  if (!result) {
+    // Fallback formatter: convert ALL_CAPS_UNDERSCORE to Title Case
+    result = raw
+      .toLowerCase()
+      .split('_')
+      .filter(Boolean)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  return formatDisplayText(result);
 };
 
 /**
@@ -101,13 +128,21 @@ export const formatTargetEntity = (targetType) => {
     AssignmentSubmission: 'Assignment Submission',
     Training: 'Training Course',
     User: 'User Profile',
-    Department: 'Department',
+    Department: 'Group',
     Category: 'Training Category',
-    Organization: 'Organization'
+    Organization: 'Organization',
+    Employee: 'Learner',
+    Employees: 'Learners'
   };
 
-  if (entityMap[raw]) return entityMap[raw];
+  let result = entityMap[raw];
 
-  // Fallback: split CamelCase into spaced words
-  return raw.replace(/([a-z])([A-Z])/g, '$1 $2');
+  if (!result) {
+    // Fallback: split CamelCase into spaced words
+    result = raw.replace(/([a-z])([A-Z])/g, '$1 $2');
+  }
+
+  return formatDisplayText(result);
 };
+
+

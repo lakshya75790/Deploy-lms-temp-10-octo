@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import {
   getOrgCertificates,
   getCertificateTemplate,
@@ -11,6 +12,7 @@ import {
 } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { useNotification } from '../../context/NotificationContext';
+import { validateImageFile } from '../../utils/fileValidation';
 import { useAuth } from '../../context/AuthContext';
 import { CertificateCanvas, exportCertificatePNG, exportCertificatePDF } from '../../components/common/CertificateCanvas';
 import { formatDate } from '../../utils/formatters';
@@ -175,6 +177,14 @@ export const AdminCertificates = () => {
 
     if (!file.type.startsWith('image/')) {
       addToast('error', 'Please select a valid image file (PNG, JPG, SVG, WebP)');
+      e.target.value = '';
+      return;
+    }
+
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = '';
       return;
     }
 
@@ -202,16 +212,16 @@ export const AdminCertificates = () => {
   };
 
   const handleLogoDelete = async () => {
-    const oldPublicId = template.logoPublicId;
-    setTemplate(prev => ({ ...prev, logoUrl: null, logoPublicId: null }));
-    addToast('info', 'Logo removed from certificate template');
-
-    if (oldPublicId) {
-      try {
-        await deleteMedia(oldPublicId, 'image');
-      } catch (err) {
-        console.warn('Failed to delete logo asset from Cloudinary:', err);
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    const target = template.logoPublicId || template.logoUrl;
+    try {
+      if (target) {
+        await deleteMedia(target, 'image');
       }
+      setTemplate(prev => ({ ...prev, logoUrl: null, logoPublicId: null }));
+      addToast('success', 'File deleted successfully.');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
     }
   };
 
@@ -221,6 +231,14 @@ export const AdminCertificates = () => {
 
     if (!originalFile.type.startsWith('image/')) {
       addToast('error', 'Please select a valid image file (PNG, JPG, SVG, WebP)');
+      e.target.value = '';
+      return;
+    }
+
+    const validation = validateImageFile(originalFile);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = '';
       return;
     }
 
@@ -234,14 +252,15 @@ export const AdminCertificates = () => {
       formData.append('file', fileToUpload);
 
       const res = await uploadImage(formData);
-      const { url, publicId } = res.data.data;
+      const url = res.data.data.url;
+      const publicId = res.data.data.publicId || res.data.data.public_id || url;
 
-      const oldPublicId = template.signaturePublicId;
+      const oldTarget = template.signaturePublicId || template.signatureUrl;
       setTemplate(prev => ({ ...prev, signatureUrl: url, signaturePublicId: publicId }));
       addToast('success', 'Transparent signature image uploaded successfully!');
 
-      if (oldPublicId && oldPublicId !== publicId) {
-        deleteMedia(oldPublicId, 'image').catch(err => console.warn('Failed to delete old signature asset:', err));
+      if (oldTarget && oldTarget !== publicId) {
+        deleteMedia(oldTarget, 'image').catch(err => console.warn('Failed to delete old signature asset:', err));
       }
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to upload signature image');
@@ -252,16 +271,16 @@ export const AdminCertificates = () => {
   };
 
   const handleSignatureDelete = async () => {
-    const oldPublicId = template.signaturePublicId;
-    setTemplate(prev => ({ ...prev, signatureUrl: null, signaturePublicId: null }));
-    addToast('info', 'Signature image removed');
-
-    if (oldPublicId) {
-      try {
-        await deleteMedia(oldPublicId, 'image');
-      } catch (err) {
-        console.warn('Failed to delete signature asset from Cloudinary:', err);
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+    const target = template.signaturePublicId || template.signatureUrl;
+    try {
+      if (target) {
+        await deleteMedia(target, 'image');
       }
+      setTemplate(prev => ({ ...prev, signatureUrl: null, signaturePublicId: null }));
+      addToast('success', 'File deleted successfully.');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
     }
   };
 
@@ -385,7 +404,7 @@ export const AdminCertificates = () => {
               type="text"
               value={search}
               onChange={handleSearchChange}
-              placeholder="Search by Employee name, Training title, or Certificate ID..."
+              placeholder="Search by Learner name, Training title, or Certificate ID..."
               className="w-full bg-transparent text-xs text-slate-900 outline-none"
             />
             {search && (
@@ -402,8 +421,8 @@ export const AdminCertificates = () => {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold tracking-wider text-[11px]">
                     <th className="p-4">Certificate ID</th>
-                    <th className="p-4">Employee</th>
-                    <th className="p-4">Department</th>
+                    <th className="p-4">Learner</th>
+                    <th className="p-4">Group</th>
                     <th className="p-4">Training Title</th>
                     <th className="p-4">Completion Date</th>
                     <th className="p-4 text-right">Actions</th>
@@ -458,7 +477,7 @@ export const AdminCertificates = () => {
                             onClick={() => {
                               setSelectedCert(cert);
                               setTimeout(() => {
-                                exportCertificatePDF(`admin_cert_${cert.id}`, `Certificate_${selectedCert.certificateId}.pdf`);
+                                exportCertificatePDF(`admin_cert_${cert.id}`, `Certificate_${cert.certificateId}.pdf`);
                               }, 150);
                             }}
                             className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors cursor-pointer inline-flex items-center border border-red-200"
@@ -552,10 +571,10 @@ export const AdminCertificates = () => {
                           <button
                             type="button"
                             onClick={handleLogoDelete}
-                            className="p-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-colors cursor-pointer flex items-center"
                             title="Delete Logo"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Image
                           </button>
                         </div>
                       </div>
@@ -666,10 +685,10 @@ export const AdminCertificates = () => {
                           <button
                             type="button"
                             onClick={handleSignatureDelete}
-                            className="p-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-colors cursor-pointer flex items-center"
                             title="Delete Signature"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Image
                           </button>
                         </div>
                       </div>
@@ -876,14 +895,20 @@ export const AdminCertificates = () => {
       )}
 
       {/* FULL VIEW MODAL */}
-      {selectedCert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/75 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-5xl h-[88vh] max-h-[850px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3 shrink-0">
+      {selectedCert && ReactDOM.createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-md animate-fade-in overflow-y-auto"
+          onClick={() => setSelectedCert(null)}
+        >
+          <div
+            className="relative w-full max-w-6xl h-[84vh] sm:h-[88vh] max-h-[820px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col shadow-2xl overflow-hidden my-auto shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 sm:pb-4 gap-3 shrink-0">
               <div className="min-w-0 pr-2">
-                <span className="text-[11px] font-bold text-emerald-700 font-mono">{selectedCert.certificateId}</span>
+                <span className="text-[11px] font-bold text-emerald-700 font-mono tracking-wider">{selectedCert.certificateId}</span>
                 <h2
-                  className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 truncate"
+                  className="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 truncate"
                   title={`${selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}${selectedCert.training?.title || ''}`}
                 >
                   {selectedCert.employee?.name ? `${selectedCert.employee.name} • ` : ''}
@@ -892,37 +917,25 @@ export const AdminCertificates = () => {
               </div>
               <div className="flex items-center space-x-2 shrink-0">
                 <button
-                  onClick={() => exportCertificatePNG(`admin_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.png`)}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <Download className="w-4 h-4 mr-1.5" /> Download PNG
-                </button>
-
-                <button
-                  onClick={() => exportCertificatePDF(`admin_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.pdf`)}
-                  className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-xs inline-flex items-center cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 mr-1.5" /> Download PDF
-                </button>
-
-                <button
                   onClick={() => setSelectedCert(null)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                  aria-label="Close Certificate View"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-5 flex items-center justify-center bg-slate-50 border border-slate-200/80 rounded-2xl overflow-hidden mt-4">
+            <div className="flex-1 min-h-0 min-w-0 p-2 sm:p-4 flex items-center justify-center bg-slate-900/5 border border-slate-200/80 rounded-xl overflow-hidden mt-3 sm:mt-4">
               <CertificateCanvas
                 certificate={selectedCert}
                 elementId={`admin_cert_${selectedCert.id}`}
-                className="max-h-full max-w-full"
+                className="w-full h-full"
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

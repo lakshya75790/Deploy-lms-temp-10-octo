@@ -33,11 +33,11 @@ export const Login = () => {
       const isNotStarted = err.errorCode === 'ORGANIZATION_LICENSE_NOT_STARTED' || (err.message && err.message.toLowerCase().includes('not started'));
 
       if (isExpired) {
-        const msg = "Your organization's LMS license has expired. Please contact your Organization Admin to renew or extend the license.";
+        const msg = "Your LMS license has expired. Please contact your administrator to renew or extend the license.";
         setLicenseError(msg);
         addToast('error', msg);
       } else if (isNotStarted) {
-        const msg = "Your organization's LMS license has not started yet. Please contact your administrator.";
+        const msg = "Your LMS license has not started yet. Please contact your administrator.";
         setLicenseError(msg);
         addToast('error', msg);
       } else {
@@ -53,7 +53,7 @@ export const Login = () => {
       <div className="space-y-2">
         <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Sign In to LMS</h2>
         <p className="text-xs text-slate-500 leading-relaxed">
-          Enter your organizational credentials to access your personalized learning dashboard.
+          Enter your credentials to access your personalized learning dashboard.
         </p>
       </div>
 
@@ -71,7 +71,7 @@ export const Login = () => {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Work Email Address</label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address</label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
             <input
@@ -82,7 +82,7 @@ export const Login = () => {
                 if (licenseError) setLicenseError(null);
               }}
               required
-              placeholder="name@company.com"
+              placeholder="you@example.com"
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
             />
           </div>
@@ -136,9 +136,9 @@ export const Login = () => {
 
       <div className="pt-5 border-t border-slate-100 text-center text-xs">
         <p className="text-slate-500">
-          New employee?{' '}
+          New learner?{' '}
           <Link to="/register-employee" className="text-emerald-600 hover:text-emerald-800 font-bold underline transition-colors">
-            Register Employee Account
+            Register Learner Account
           </Link>
         </p>
       </div>

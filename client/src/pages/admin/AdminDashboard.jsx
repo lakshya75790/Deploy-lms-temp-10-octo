@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getAdminDashboardReports } from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
 import { EmptyState } from '../../components/common/EmptyState';
-import { formatAuditAction } from '../../utils/formatters';
+import { formatAuditAction, formatDisplayText } from '../../utils/formatters';
 import {
   Users,
   GraduationCap,
@@ -34,11 +34,12 @@ import {
 const renderAuditDetails = (details) => {
   if (!details) return <span className="text-slate-400 italic">No details provided</span>;
 
-  const match = details.match(/^Event:\s*([^.,]+)[.,]\s*(?:Details:\s*)?(.+)$/i);
+  const formattedDetailsStr = formatDisplayText(details);
+  const match = formattedDetailsStr.match(/^Event:\s*([^.,]+)[.,]\s*(?:Details:\s*)?(.+)$/i);
 
   if (match) {
-    const eventName = match[1].trim();
-    const mainDetails = match[2].trim();
+    const eventName = formatDisplayText(match[1].trim());
+    const mainDetails = formatDisplayText(match[2].trim());
 
     return (
       <div className="flex flex-col gap-1 py-0.5">
@@ -56,7 +57,7 @@ const renderAuditDetails = (details) => {
 
   return (
     <p className="text-xs text-slate-800 font-medium leading-relaxed whitespace-normal break-words py-0.5">
-      {details}
+      {formattedDetailsStr}
     </p>
   );
 };
@@ -131,13 +132,13 @@ export const AdminDashboard = () => {
         <div className="relative z-10 space-y-1.5 max-w-2xl">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-xs font-bold backdrop-blur-xs">
             <Award className="w-3.5 h-3.5 mr-1.5 text-emerald-300" />
-            Executive Analytics Portal
+            Learning Analytics
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-heading">
-            Organization Dashboard
+            Admin Dashboard
           </h1>
           <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-            Real-time compliance tracking, active user counts, and department performance metrics.
+            Monitor learners, courses, training progress, and overall learning activity.
           </p>
         </div>
 
@@ -269,11 +270,11 @@ export const AdminDashboard = () => {
               );
             })()}
 
-            {/* Card 2: Total Employees */}
+            {/* Card 2: Total Employees / Learners */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Employees</p>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Learners</p>
                   <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                     {quickStats.totalEmployees ?? 0}
                   </h3>
@@ -283,9 +284,9 @@ export const AdminDashboard = () => {
                 </div>
               </div>
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Active org staff</span>
+                <span>Active learners</span>
                 <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                  Staff Roster
+                  Learner Roster
                 </span>
               </div>
             </div>
@@ -463,7 +464,7 @@ export const AdminDashboard = () => {
             );
           })()}
 
-          {/* SECTION 3: DEPARTMENT COMPLETION ANALYTICS CHART (FULL WIDTH) */}
+          {/* SECTION 3: GROUP COMPLETION ANALYTICS CHART (FULL WIDTH) */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2.5">
@@ -472,10 +473,10 @@ export const AdminDashboard = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base font-heading">
-                    Department Completion Analytics
+                    Group Completion Analytics
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Real-time course completion percentage per department
+                    Real-time course completion percentage per group
                   </p>
                 </div>
               </div>
@@ -491,8 +492,8 @@ export const AdminDashboard = () => {
             {chartData.length === 0 ? (
               <EmptyState
                 icon={Building2}
-                title="No Department Analytics Available"
-                description="Create departments and assign training courses to start tracking department completion rates."
+                title="No Group Analytics Available"
+                description="Create groups and assign training courses to start tracking group completion rates."
               />
             ) : (
               <div className="h-72 w-full pt-2">
@@ -525,7 +526,7 @@ export const AdminDashboard = () => {
             )}
           </div>
 
-          {/* SECTION 4: DEPARTMENT DETAILS TABLE */}
+          {/* SECTION 4: GROUP DETAILS TABLE */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2.5">
@@ -534,24 +535,24 @@ export const AdminDashboard = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base font-heading">
-                    Department Performance Breakdown
+                    Group Performance Breakdown
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Detailed summary of employee enrollments and course completions
+                    Detailed summary of learner enrollments and course completions
                   </p>
                 </div>
               </div>
             </div>
 
             {departmentPerformance.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4 text-center">No department data recorded yet.</p>
+              <p className="text-xs text-slate-500 py-4 text-center">No group data recorded yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-700">
                   <thead className="text-[11px] uppercase bg-slate-50 text-slate-500 font-bold tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="px-4 py-3">Department Name</th>
-                      <th className="px-4 py-3 text-center">Total Employees</th>
+                      <th className="px-4 py-3">Group Name</th>
+                      <th className="px-4 py-3 text-center">Total Learners</th>
                       <th className="px-4 py-3 text-center">Assigned Courses</th>
                       <th className="px-4 py-3 text-center">Completed Courses</th>
                       <th className="px-4 py-3 text-center">Completion Rate</th>
@@ -664,7 +665,7 @@ export const AdminDashboard = () => {
                           <div className="inline-flex items-center space-x-2">
                             <span className="font-bold text-slate-900">{log.userName}</span>
                             <span className="uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                              {log.userRole}
+                              {formatDisplayText(log.userRole)}
                             </span>
                           </div>
                         </td>

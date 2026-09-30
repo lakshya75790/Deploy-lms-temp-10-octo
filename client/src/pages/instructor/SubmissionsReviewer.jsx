@@ -100,7 +100,7 @@ export const SubmissionsReviewer = () => {
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Project Submissions & Grading Studio</h1>
           <p className="text-xs text-slate-500">
-            Review employee code repositories, evaluate project submissions, assign qualitative grades, and provide feedback.
+            Review learner code repositories, evaluate project submissions, assign qualitative grades, and provide feedback.
           </p>
         </div>
 
@@ -190,7 +190,7 @@ export const SubmissionsReviewer = () => {
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                 <tr>
-                  <th className="p-4">Employee</th>
+                  <th className="p-4">Learner</th>
                   <th className="p-4">Training & Assignment</th>
                   <th className="p-4">Submission Details</th>
                   <th className="p-4">Submitted Date</th>
@@ -214,7 +214,7 @@ export const SubmissionsReviewer = () => {
                             className="w-9 h-9 rounded-xl object-cover bg-slate-100 border border-slate-200"
                           />
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{emp.name || 'Employee'}</p>
+                            <p className="font-bold text-slate-900 text-sm">{emp.name || 'Learner'}</p>
                             <p className="text-[11px] text-slate-500">{emp.email || ''}</p>
                           </div>
                         </div>

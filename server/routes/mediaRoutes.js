@@ -16,6 +16,6 @@ router.use(protect);
 router.post('/upload-image', authorizeRoles('Instructor', 'Admin'), upload.single('file'), uploadImage);
 router.post('/upload-video', authorizeRoles('Instructor', 'Admin'), upload.single('file'), uploadVideo);
 router.post('/upload-pdf', upload.single('file'), uploadPdf);
-router.post('/delete', authorizeRoles('Instructor', 'Admin'), deleteMedia);
+router.post('/delete', deleteMedia);
 
 module.exports = router;

@@ -33,9 +33,9 @@ export const EmployeeRegister = () => {
   return (
     <div className="bg-white p-6 sm:p-8 md:p-10 rounded-3xl border border-slate-200 shadow-xl space-y-6 animate-auth-form-switch">
       <div className="space-y-2">
-        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Employee Registration</h2>
+        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Learner Registration</h2>
         <p className="text-xs text-slate-500 leading-relaxed">
-          Enter your Organization Code provided by your administrator to create your employee portal.
+          Enter your Organization Code provided by your administrator to create your learner portal.
         </p>
       </div>
 
@@ -71,7 +71,7 @@ export const EmployeeRegister = () => {
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Work Email</label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address</label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
             <input
@@ -116,7 +116,7 @@ export const EmployeeRegister = () => {
             <span>Registering...</span>
           ) : (
             <>
-              <span>Create Employee Account</span>
+              <span>Create Learner Account</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}

@@ -67,20 +67,20 @@ export const MyReport = () => {
     doc.setFont('helvetica', 'normal');
     doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 26);
 
-    // Section 1: Employee Details
+    // Section 1: Learner Details
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text('Employee Information', 14, 34);
+    doc.text('Learner Information', 14, 34);
 
     autoTable(doc, {
       startY: 37,
       theme: 'grid',
-      head: [['Employee Name', 'Email', 'Department', 'Job Role', 'Organization']],
+      head: [['Learner Name', 'Email', 'Group', 'Role', 'Organization']],
       body: [[
         emp.name || user?.name || 'N/A',
         emp.email || user?.email || 'N/A',
         emp.department || user?.department?.name || 'Unassigned',
-        emp.jobRole || 'Employee',
+        emp.jobRole || 'Learner',
         emp.organization || 'Organization'
       ]],
       styles: { fontSize: 8 }
@@ -206,7 +206,7 @@ export const MyReport = () => {
       styles: { fontSize: 7, cellPadding: 2 }
     });
 
-    doc.save(`Personal_Training_Report_${(emp.name || 'Employee').replace(/\s+/g, '_')}.pdf`);
+    doc.save(`Personal_Training_Report_${(emp.name || 'Learner').replace(/\s+/g, '_')}.pdf`);
   };
 
   if (loading) return <LoadingSpinner text="Compiling your personal training report & stats..." />;
@@ -262,7 +262,7 @@ export const MyReport = () => {
       <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700 mb-2">
-            <Sparkles className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> Employee Performance Hub
+            <Sparkles className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> Learner Performance Hub
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Personal Training Report & Stats</h1>
           <p className="text-xs text-slate-500">

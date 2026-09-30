@@ -183,7 +183,7 @@ export const Reports = () => {
             Organizational Reports & Analytics
           </h1>
           <p className="text-xs text-slate-500">
-            Monitor training progress, department compliance, employee performance, and organizational learning.
+            Monitor training progress, group compliance, learner performance, and organizational learning.
           </p>
         </div>
 
@@ -225,28 +225,28 @@ export const Reports = () => {
                   className="w-full flex items-center px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   <Building2 className="w-4 h-4 mr-2.5 text-teal-600" />
-                  Department Compliance Report
+                  Group Compliance Report
                 </button>
                 <button
                   onClick={() => { exportEmployeeProgressReport(filteredEmployees); setShowExportMenu(false); }}
                   className="w-full flex items-center px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   <Users className="w-4 h-4 mr-2.5 text-emerald-600" />
-                  Employee Progress Report
+                  Learner Progress Report
                 </button>
                 <button
                   onClick={() => { exportTrainingAnalyticsReport(trainingAnalytics); setShowExportMenu(false); }}
                   className="w-full flex items-center px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   <BookOpen className="w-4 h-4 mr-2.5 text-teal-600" />
-                  Training Completion Report
+                  Course Completion Report
                 </button>
                 <button
                   onClick={() => { exportOverdueReport(overdueReport); setShowExportMenu(false); }}
                   className="w-full flex items-center px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
                 >
                   <Clock className="w-4 h-4 mr-2.5 text-rose-600" />
-                  Overdue Trainings Report
+                  Overdue Training Assignments Report
                 </button>
               </div>
             )}
@@ -280,7 +280,7 @@ export const Reports = () => {
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Employees</p>
+            <p className="text-[11px] font-medium text-slate-500">Learners</p>
             <h3 className="text-xl font-black text-slate-900">{overview.totalEmployees || 0}</h3>
           </div>
         </div>
@@ -290,7 +290,7 @@ export const Reports = () => {
             <Building2 className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Departments</p>
+            <p className="text-[11px] font-medium text-slate-500">Groups</p>
             <h3 className="text-xl font-black text-slate-900">{overview.totalDepartments || 0}</h3>
           </div>
         </div>
@@ -334,7 +334,7 @@ export const Reports = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employee, department, role..."
+            placeholder="Search learner, group, role..."
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none"
           />
         </div>
@@ -344,7 +344,7 @@ export const Reports = () => {
           onChange={(e) => setSelectedDept(e.target.value)}
           className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 outline-none cursor-pointer"
         >
-          <option value="">All Departments</option>
+          <option value="">All Groups</option>
           {departmentAnalytics.map(d => (
             <option key={d.departmentId} value={d.departmentId}>{d.departmentName}</option>
           ))}
@@ -355,7 +355,7 @@ export const Reports = () => {
           onChange={(e) => setSelectedTraining(e.target.value)}
           className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 outline-none cursor-pointer"
         >
-          <option value="">All Training Courses</option>
+          <option value="">All Courses</option>
           {trainingAnalytics.map(t => (
             <option key={t._id} value={t._id}>{t.title}</option>
           ))}
@@ -385,9 +385,9 @@ export const Reports = () => {
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {[
           { id: 'overview', label: 'Overview', icon: PieChart },
-          { id: 'departments', label: 'Department Analytics', icon: Building2 },
-          { id: 'employees', label: 'Employee Progress', icon: Users, badge: filteredEmployees.length },
-          { id: 'trainings', label: 'Training Analytics', icon: BookOpen, badge: filteredTrainings.length },
+          { id: 'departments', label: 'Group Analytics', icon: Building2 },
+          { id: 'employees', label: 'Learner Progress', icon: Users, badge: filteredEmployees.length },
+          { id: 'trainings', label: 'Course Analytics', icon: BookOpen, badge: filteredTrainings.length },
           { id: 'overdue', label: 'Overdue Report', icon: Clock, badge: filteredOverdue.length },
           { id: 'compliance', label: 'Compliance Leaderboard', icon: Award }
         ].map(t => {
@@ -425,13 +425,13 @@ export const Reports = () => {
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-slate-900 text-base flex items-center">
                   <BarChart3 className="w-5 h-5 mr-2 text-emerald-600" />
-                  Department Compliance %
+                  Group Compliance %
                 </h3>
                 <span className="text-xs text-slate-500">Real-Time Aggregation</span>
               </div>
 
               {deptChartData.length === 0 ? (
-                <EmptyState icon={Building2} title="No Department Data" description="Create departments to view compliance chart." />
+                <EmptyState icon={Building2} title="No Group Data" description="Create groups to view compliance chart." />
               ) : (
                 <div className="h-72 w-full pt-4">
                   <ResponsiveContainer width="100%" height="100%">
@@ -493,7 +493,7 @@ export const Reports = () => {
       )}
 
       {/* ================================================== */}
-      {/* TAB 2: DEPARTMENT ANALYTICS DRILL-DOWN */}
+      {/* TAB 2: GROUP ANALYTICS DRILL-DOWN */}
       {/* ================================================== */}
       {activeTab === 'departments' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5 animate-fade-in">
@@ -501,19 +501,19 @@ export const Reports = () => {
             <div>
               <h3 className="font-extrabold text-slate-900 text-base flex items-center font-heading">
                 <Building2 className="w-5 h-5 mr-2 text-emerald-600" />
-                Department Wise Drill-Down Compliance
+                Group Wise Drill-Down Compliance
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Interactive organizational tree hierarchy: Department → Job Roles → Employees
+                Interactive organizational tree hierarchy: Group → Roles → Learners
               </p>
             </div>
             <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
-              {departmentAnalytics.length} Departments Tracked
+              {departmentAnalytics.length} Groups Tracked
             </span>
           </div>
 
           {departmentAnalytics.length === 0 ? (
-            <EmptyState icon={Building2} title="No Departments Found" description="No active departments in your organization." />
+            <EmptyState icon={Building2} title="No Groups Found" description="No active groups in your organization." />
           ) : (
             <div className="space-y-6">
               {departmentAnalytics.map((dept) => {
@@ -521,7 +521,7 @@ export const Reports = () => {
 
                 return (
                   <div key={dept.departmentId} className="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden transition-all">
-                    {/* Department Header Accordion Bar (PARENT NODE) */}
+                    {/* Group Header Accordion Bar (PARENT NODE) */}
                     <div
                       onClick={() => toggleDeptExpand(dept.departmentId)}
                       className={`p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 cursor-pointer transition-colors ${
@@ -535,12 +535,12 @@ export const Reports = () => {
                         <div>
                           <div className="flex items-center space-x-2">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
-                              Department
+                              Group
                             </span>
                             <h4 className="font-extrabold text-slate-900 text-base font-heading">{dept.departmentName}</h4>
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            {dept.totalEmployees} Employees • {dept.totalRoles} Job Roles • {dept.totalAssigned} Trainings Assigned
+                            {dept.totalEmployees} Learners • {dept.totalRoles} Roles • {dept.totalAssigned} Trainings Assigned
                           </p>
                         </div>
                       </div>
@@ -565,12 +565,12 @@ export const Reports = () => {
                       </div>
                     </div>
 
-                    {/* Department Drill-Down Tree Section */}
+                    {/* Group Drill-Down Tree Section */}
                     {isDeptExpanded && (
                       <div className="p-4 sm:p-6 bg-slate-50/50 space-y-4 animate-fade-in relative">
                         {dept.totalAssigned === 0 && (
                           <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
-                            No training assignments have been made for this department yet.
+                            No training assignments have been made for this group yet.
                           </div>
                         )}
 
@@ -587,11 +587,11 @@ export const Reports = () => {
 
                             return (
                               <div key={roleKey} className="relative">
-                                {/* L-Shaped Branch Connector to Job Role Card */}
+                                {/* L-Shaped Branch Connector to Role Card */}
                                 <div className="absolute -left-3.5 sm:-left-4.5 top-5 w-4 sm:w-5 h-0.5 bg-emerald-200/90 rounded-l-xs" />
                                 <div className="absolute -left-4 sm:-left-5 top-4 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
 
-                                {/* JOB ROLE CARD (CHILD NODE) */}
+                                {/* ROLE CARD (CHILD NODE) */}
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs space-y-3 transition-all hover:border-emerald-300">
                                   <div
                                     onClick={() => toggleRoleExpand(roleKey)}
@@ -604,7 +604,7 @@ export const Reports = () => {
                                       <Briefcase className="w-4 h-4 text-teal-600" />
                                       <span className="font-extrabold text-sm">{role.jobRole}</span>
                                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                                        {role.totalEmployees} {role.totalEmployees === 1 ? 'Employee' : 'Employees'}
+                                        {role.totalEmployees} {role.totalEmployees === 1 ? 'Learner' : 'Learners'}
                                       </span>
                                     </div>
 
@@ -618,24 +618,24 @@ export const Reports = () => {
                                     </div>
                                   </div>
 
-                                  {/* Employees in Role (GRANDCHILD NODES) */}
+                                  {/* Learners in Role (GRANDCHILD NODES) */}
                                   {isRoleExpanded && (
                                     <div className="pt-3 border-t border-slate-100 space-y-2.5 animate-fade-in relative pl-5 sm:pl-6">
-                                      {/* Secondary Vertical Spine for Employees */}
+                                      {/* Secondary Vertical Spine for Learners */}
                                       {role.employees.length > 0 && (
                                         <div className="absolute left-2.5 sm:left-3 top-3 bottom-4 w-0.5 bg-teal-200/90 rounded-full" />
                                       )}
 
                                       {role.employees.length === 0 ? (
-                                        <p className="text-xs text-slate-400 italic p-1">No employees assigned to this job role.</p>
+                                        <p className="text-xs text-slate-400 italic p-1">No learners assigned to this role.</p>
                                       ) : (
                                         role.employees.map((emp) => (
                                           <div key={emp._id} className="relative">
-                                            {/* Secondary L-Connector to Employee Card */}
+                                            {/* Secondary L-Connector to Learner Card */}
                                             <div className="absolute -left-2.5 sm:-left-3 top-4.5 w-3 h-0.5 bg-teal-200/90" />
                                             <div className="absolute -left-3 sm:-left-3.5 top-4 w-1.5 h-1.5 rounded-full bg-teal-500 ring-2 ring-white" />
 
-                                            {/* EMPLOYEE CARD (GRANDCHILD) */}
+                                            {/* LEARNER CARD (GRANDCHILD) */}
                                             <div
                                               onClick={() => {
                                                 const fullEmp = employeeAnalytics.find(e => String(e._id) === String(emp._id));
@@ -692,27 +692,27 @@ export const Reports = () => {
       )}
 
       {/* ================================================== */}
-      {/* TAB 3: EMPLOYEE PROGRESS TABLE */}
+      {/* TAB 3: LEARNER PROGRESS TABLE */}
       {/* ================================================== */}
       {activeTab === 'employees' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4 animate-fade-in">
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <h3 className="font-bold text-slate-900 text-base flex items-center">
               <Users className="w-5 h-5 mr-2 text-indigo-600" />
-              Employee Training Progress ({filteredEmployees.length})
+              Learner Training Progress ({filteredEmployees.length})
             </h3>
-            <span className="text-xs text-slate-500">Click employee row to view full profile & assignments</span>
+            <span className="text-xs text-slate-500">Click learner row to view full profile & assignments</span>
           </div>
 
           {filteredEmployees.length === 0 ? (
-            <EmptyState icon={Users} title="No Employees Found" description="No employees match your active filters." />
+            <EmptyState icon={Users} title="No Learners Found" description="No learners match your active filters." />
           ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
-                    <th className="p-3.5">Employee</th>
-                    <th className="p-3.5">Department & Role</th>
+                    <th className="p-3.5">Learner</th>
+                    <th className="p-3.5">Group & Role</th>
                     <th className="p-3.5 text-center">Assigned</th>
                     <th className="p-3.5 text-center">Completed</th>
                     <th className="p-3.5 text-center">In Progress</th>
@@ -783,7 +783,7 @@ export const Reports = () => {
               <BookOpen className="w-5 h-5 mr-2 text-indigo-600" />
               Training Completion Analytics ({filteredTrainings.length})
             </h3>
-            <span className="text-xs text-slate-500">Click course row to view enrolled employee roster</span>
+            <span className="text-xs text-slate-500">Click course row to view enrolled learner roster</span>
           </div>
 
           {filteredTrainings.length === 0 ? (
@@ -849,14 +849,14 @@ export const Reports = () => {
           </div>
 
           {filteredOverdue.length === 0 ? (
-            <EmptyState icon={CheckCircle2} title="No Overdue Trainings 🎉" description="All employees are currently on schedule with their assigned training courses." />
+            <EmptyState icon={CheckCircle2} title="No Overdue Trainings 🎉" description="All learners are currently on schedule with their assigned training courses." />
           ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs text-slate-700">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
-                    <th className="p-3.5">Employee</th>
-                    <th className="p-3.5">Department & Job Role</th>
+                    <th className="p-3.5">Learner</th>
+                    <th className="p-3.5">Group & Role</th>
                     <th className="p-3.5">Training Course</th>
                     <th className="p-3.5">Deadline</th>
                     <th className="p-3.5 text-center">Days Overdue</th>
@@ -903,13 +903,13 @@ export const Reports = () => {
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-bold text-slate-900 text-base flex items-center">
                 <Award className="w-5 h-5 mr-2 text-indigo-600" />
-                Department Compliance Rankings Leaderboard
+                Group Compliance Rankings Leaderboard
               </h3>
               <span className="text-xs text-slate-500 font-medium">Ranked by Real Compliance %</span>
             </div>
 
             {complianceLeaderboard.length === 0 ? (
-              <EmptyState icon={Building2} title="No Departments Found" description="No active departments in your organization." />
+              <EmptyState icon={Building2} title="No Groups Found" description="No active groups in your organization." />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {complianceLeaderboard.map((d, index) => (
@@ -958,7 +958,7 @@ export const Reports = () => {
                 <Zap className="w-5 h-5 mr-2 text-amber-600" />
                 Compulsory & Auto-Assigned Training Compliance ({mandatoryAnalytics.length})
               </h3>
-              <span className="text-xs text-slate-500">Click training card for employee drill-down roster</span>
+              <span className="text-xs text-slate-500">Click training card for learner drill-down roster</span>
             </div>
 
             {mandatoryAnalytics.length === 0 ? (
@@ -1004,7 +1004,7 @@ export const Reports = () => {
                     </div>
 
                     <div className="flex items-center justify-between text-[10px] text-amber-800 font-medium pt-1">
-                      <span>Click to view employee progress roster</span>
+                      <span>Click to view learner progress roster</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </div>
                   </div>
@@ -1020,7 +1020,7 @@ export const Reports = () => {
         <Modal
           isOpen={Boolean(selectedEmpModal)}
           onClose={() => setSelectedEmpModal(null)}
-          title={`Employee Learning Profile — ${selectedEmpModal.name}`}
+          title={`Learner Learning Profile — ${selectedEmpModal.name}`}
           maxWidth="max-w-3xl"
         >
           <div className="space-y-6">
@@ -1101,7 +1101,7 @@ export const Reports = () => {
             </div>
 
             <h5 className="font-bold text-slate-900 text-sm">
-              Enrolled Employees ({selectedTrainingModal.enrolledEmployees.length})
+              Enrolled Learners ({selectedTrainingModal.enrolledEmployees.length})
             </h5>
 
             <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">

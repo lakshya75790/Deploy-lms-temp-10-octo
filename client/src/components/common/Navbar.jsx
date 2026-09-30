@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { formatDisplayText } from '../../utils/formatters';
 import { ProfileModal } from '../profile/ProfileModal';
 import { ChangePasswordModal } from '../profile/ChangePasswordModal';
 import { Bell, User, KeyRound, LogOut, CheckCheck, Sparkles, Building, Menu, GraduationCap } from 'lucide-react';
@@ -50,7 +51,7 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
         <div className="flex items-center space-x-2 sm:space-x-3">
           {/* Role Badge */}
           <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider border ${roleColors[user?.role] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-            {user?.role === 'Admin' ? 'Org Admin' : user?.role}
+            {user?.role === 'Admin' ? 'Org Admin' : user?.role === 'Employee' ? 'Learner' : user?.role}
           </span>
 
           {/* Notifications Bell */}
@@ -107,8 +108,8 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                             !n.isRead ? 'bg-emerald-50/60 border-l-3 border-emerald-600' : 'hover:bg-slate-50 opacity-80'
                           }`}
                         >
-                          <h5 className="font-semibold text-slate-900 mb-0.5">{n.title}</h5>
-                          <p className="text-slate-600 mb-1 leading-relaxed">{n.message}</p>
+                          <h5 className="font-semibold text-slate-900 mb-0.5">{formatDisplayText(n.title)}</h5>
+                          <p className="text-slate-600 mb-1 leading-relaxed">{formatDisplayText(n.message)}</p>
                           <span className="text-[10px] font-medium text-slate-400">
                             {new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>

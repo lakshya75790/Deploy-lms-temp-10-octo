@@ -71,9 +71,9 @@ export const MyTrainings = () => {
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Training Courses Studio</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Course Studio</h1>
           <p className="text-xs text-slate-500">
-            Create, manage, and publish your organization training courses, syllabus sections, quizzes, and assignments.
+            Create, manage, and publish your organization courses, syllabus sections, quizzes, and assignments.
           </p>
         </div>
         <button
@@ -81,23 +81,23 @@ export const MyTrainings = () => {
           className="inline-flex items-center px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4 mr-1.5" />
-          Create New Training
+          Create New Course
         </button>
       </div>
 
       {loading ? (
-        <LoadingSpinner text="Loading training courses..." />
+        <LoadingSpinner text="Loading courses..." />
       ) : trainings.length === 0 ? (
         <EmptyState
           icon={BookOpen}
-          title="No Trainings Created"
-          description="Create your first training course to start adding sections, lectures, quizzes, and project assignments."
+          title="No Courses Created"
+          description="Create your first course to start adding sections, lectures, quizzes, and project assignments."
           action={
             <button
               onClick={() => navigate('/instructor/course-builder/new')}
               className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700"
             >
-              Create Training
+              Create Course
             </button>
           }
         />
