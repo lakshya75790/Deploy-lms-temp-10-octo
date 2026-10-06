@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const rawApiUrl = import.meta.env.VITE_API_URL;
+const rawApiUrl = import.meta.env.VITE_API_URL||"https://api.lms.itsoftlab360.com";
 
 const getBaseUrl = () => {
   if (!rawApiUrl) return '/api';
