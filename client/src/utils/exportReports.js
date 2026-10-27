@@ -20,7 +20,9 @@ const downloadCSV = (filename, csvContent) => {
 export const exportEmployeeProgressReport = (employees) => {
   let csv = 'Learner Name,Email,Group,Role,Total Assigned,Completed,In Progress,Pending,Overdue,Compliance Rate (%),Overall Progress (%)\n';
   employees.forEach(e => {
-    csv += `"${e.name}","${e.email}","${e.departmentName || 'Unassigned'}","${e.jobRole || 'Unassigned'}",${e.totalAssigned},${e.completed},${e.inProgress},${e.pending},${e.overdue},${e.complianceRate},${e.overallProgress}\n`;
+    const groupName = e.departmentName && e.departmentName !== 'Unassigned' ? e.departmentName : 'No Group Assigned';
+    const roleName = e.jobRole && e.jobRole !== 'Unassigned' ? e.jobRole : 'No Role Assigned';
+    csv += `"${e.name}","${e.email}","${groupName}","${roleName}",${e.totalAssigned},${e.completed},${e.inProgress},${e.pending},${e.overdue},${e.complianceRate},${e.overallProgress}\n`;
   });
   downloadCSV(`Learner_Progress_Report_${Date.now()}.csv`, csv);
 };
@@ -44,7 +46,9 @@ export const exportTrainingAnalyticsReport = (trainings) => {
 export const exportOverdueReport = (overdueItems) => {
   let csv = 'Learner Name,Email,Group,Role,Course Name,Deadline,Days Overdue,Progress (%),Assigned By\n';
   overdueItems.forEach(o => {
-    csv += `"${o.employeeName}","${o.employeeEmail}","${o.departmentName}","${o.jobRole}","${o.trainingTitle}","${new Date(o.deadline).toLocaleDateString()}",${o.daysOverdue},${o.currentProgress},"${o.assignedBy}"\n`;
+    const groupName = o.departmentName && o.departmentName !== 'Unassigned' ? o.departmentName : 'No Group Assigned';
+    const roleName = o.jobRole && o.jobRole !== 'Unassigned' ? o.jobRole : 'No Role Assigned';
+    csv += `"${o.employeeName}","${o.employeeEmail}","${groupName}","${roleName}","${o.trainingTitle}","${new Date(o.deadline).toLocaleDateString()}",${o.daysOverdue},${o.currentProgress},"${o.assignedBy}"\n`;
   });
   downloadCSV(`Overdue_Training_Assignments_Report_${Date.now()}.csv`, csv);
 };

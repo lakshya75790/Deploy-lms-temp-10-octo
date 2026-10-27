@@ -27,7 +27,14 @@ export const NotificationProvider = ({ children }) => {
       const res = await fetchNotificationsApi();
       if (res.data && res.data.data) {
         const notifsList = res.data.data.notifications || [];
-        setNotifications(notifsList);
+        const seen = new Set();
+        const uniqueNotifs = notifsList.filter(n => {
+          const id = n.id || n._id;
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+        setNotifications(uniqueNotifs);
         setServerUnreadCount(res.data.data.unreadCount || 0);
       }
     } catch (err) {
@@ -56,9 +63,9 @@ export const NotificationProvider = ({ children }) => {
         if (notifId && prev.some(n => (n.id === notifId || n._id === notifId))) {
           return prev;
         }
+        setServerUnreadCount(count => count + 1);
         return [newNotif, ...prev];
       });
-      setServerUnreadCount(count => count + 1);
     };
 
     socket.on('new_notification', handleNewNotification);
@@ -66,7 +73,7 @@ export const NotificationProvider = ({ children }) => {
     return () => {
       socket.off('new_notification', handleNewNotification);
     };
-  }, [socket, user]);
+  }, [socket, user?.id, user?.role]);
 
   const addToast = (type, message, title = '') => {
     if (!message) return;

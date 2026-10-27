@@ -49,19 +49,19 @@ export const Login = () => {
   };
 
   return (
-    <div className="bg-white p-6 sm:p-8 md:p-10 rounded-3xl border border-slate-200 shadow-xl space-y-6 animate-auth-form-switch">
+    <div className="bg-white dark:bg-slate-900 p-4 xs:p-6 sm:p-8 md:p-10 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl space-y-6 animate-auth-form-switch">
       <div className="space-y-2">
-        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Sign In to LMS</h2>
-        <p className="text-xs text-slate-500 leading-relaxed">
+        <h2 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">Sign In to LMS</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Enter your credentials to access your personalized learning dashboard.
         </p>
       </div>
 
       {licenseError && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start space-x-3 shadow-xs animate-fade-in">
-          <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-start space-x-3 shadow-xs animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-extrabold text-rose-900 uppercase tracking-wider block">
+            <span className="font-extrabold text-rose-900 dark:text-rose-300 uppercase tracking-wider block">
               Access Restricted
             </span>
             <p className="leading-relaxed font-medium">{licenseError}</p>
@@ -71,7 +71,7 @@ export const Login = () => {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address</label>
+          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Email Address</label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
             <input
@@ -83,15 +83,15 @@ export const Login = () => {
               }}
               required
               placeholder="you@example.com"
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
             />
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-xs font-semibold text-slate-700">Password</label>
-            <Link to="/forgot-password" className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Password</label>
+            <Link to="/forgot-password" className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors">
               Forgot Password?
             </Link>
           </div>
@@ -106,12 +106,12 @@ export const Login = () => {
               }}
               required
               placeholder="••••••••"
-              className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+              className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -134,10 +134,10 @@ export const Login = () => {
         </button>
       </form>
 
-      <div className="pt-5 border-t border-slate-100 text-center text-xs">
-        <p className="text-slate-500">
+      <div className="pt-5 border-t border-slate-100 dark:border-slate-800 text-center text-xs">
+        <p className="text-slate-500 dark:text-slate-400">
           New learner?{' '}
-          <Link to="/register-employee" className="text-emerald-600 hover:text-emerald-800 font-bold underline transition-colors">
+          <Link to="/register-employee" className="text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-bold underline transition-colors">
             Register Learner Account
           </Link>
         </p>

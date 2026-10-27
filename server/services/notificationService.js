@@ -22,18 +22,38 @@ const sendUserNotification = async (recipientId, organizationId, role, type, tit
     const relType = relatedEntity?.entityType ? String(relatedEntity.entityType) : null;
     const relId = relatedEntity?.entityId ? String(relatedEntity.entityId.id || relatedEntity.entityId._id || relatedEntity.entityId) : null;
 
-    if (options.preventDuplicates && recId) {
-      const existing = await prisma.notification.findFirst({
+    if (recId) {
+      if (options.preventDuplicates) {
+        const existing = await prisma.notification.findFirst({
+          where: {
+            recipientId: recId,
+            organizationId: orgId,
+            type,
+            relatedEntityType: relType,
+            relatedEntityId: relId
+          }
+        });
+        if (existing) {
+          return formatNotification(existing);
+        }
+      }
+
+      // 3-second debounce window to prevent rapid burst/duplicate submissions for the exact same event
+      const recentWindow = new Date(Date.now() - 3000);
+      const recentDuplicate = await prisma.notification.findFirst({
         where: {
           recipientId: recId,
           organizationId: orgId,
           type,
+          title,
+          message,
           relatedEntityType: relType,
-          relatedEntityId: relId
+          relatedEntityId: relId,
+          createdAt: { gte: recentWindow }
         }
       });
-      if (existing) {
-        return formatNotification(existing);
+      if (recentDuplicate) {
+        return formatNotification(recentDuplicate);
       }
     }
 
@@ -98,6 +118,22 @@ const sendAdminNotification = async (organizationId, type, title, message, relat
           });
           if (existing) continue;
         }
+
+        // 3-second debounce window per admin to prevent rapid burst duplicates for the exact same event
+        const recentWindow = new Date(Date.now() - 3000);
+        const recentDuplicate = await prisma.notification.findFirst({
+          where: {
+            recipientId: admin.id,
+            organizationId: orgId,
+            type,
+            title,
+            message,
+            relatedEntityType: relType,
+            relatedEntityId: relId,
+            createdAt: { gte: recentWindow }
+          }
+        });
+        if (recentDuplicate) continue;
 
         const notification = await prisma.notification.create({
           data: {

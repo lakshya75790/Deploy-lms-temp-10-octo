@@ -520,15 +520,6 @@ const extendDeadline = async (req, res, next) => {
     });
 
     // Send notifications to Employee & Instructor
-    await sendUserNotification(
-      assignment.employeeId,
-      orgId,
-      'Employee',
-      'DEADLINE_EXTENDED',
-      'Deadline Extended',
-      `The deadline for ${assignment.training.title} has been extended.`,
-      { entityType: 'TrainingAssignment', entityId: assignment.id }
-    );
     if (assignment.training.createdBy && assignment.training.createdBy !== userId) {
       await sendUserNotification(
         assignment.training.createdBy,

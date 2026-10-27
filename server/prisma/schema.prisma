@@ -179,6 +179,7 @@ model TrainingSection {
 
   training    Training             @relation(fields: [trainingId], references: [id], onDelete: Cascade)
   subSections TrainingSubSection[]
+  quizzes     Quiz[]
 
   @@index([trainingId, order])
   @@map("training_sections")
@@ -231,6 +232,7 @@ model Quiz {
   title               String
   description         String?
   trainingId          String
+  sectionId           String?
   subSectionId        String?
   passingScorePercent Float               @default(70)
   timeLimitMinutes    Int?
@@ -240,6 +242,7 @@ model Quiz {
   updatedAt           DateTime            @updatedAt
 
   training            Training            @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  section             TrainingSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   instructor          User                @relation("QuizCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
   organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -247,6 +250,7 @@ model Quiz {
   attempts            QuizAttempt[]
 
   @@index([trainingId])
+  @@index([sectionId])
   @@map("quizzes")
 }
 

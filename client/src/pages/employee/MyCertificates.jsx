@@ -78,16 +78,16 @@ export const MyCertificates = () => {
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-12">
       {/* Top Header */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="p-4 xs:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Professional Certifications</span>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading mt-1">My Training Certificates</h1>
+          <h1 className="text-xl xs:text-2xl font-extrabold text-slate-900 tracking-tight font-heading mt-1">My Training Certificates</h1>
           <p className="text-xs text-slate-500 mt-1">
             View and download official PNG/PDF certificates earned upon completing assigned trainings.
           </p>
         </div>
-        <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-          <Award className="w-4 h-4" />
+        <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold self-start sm:self-auto">
+          <Award className="w-4 h-4 shrink-0" />
           <span>{certificates.length} Certificate{certificates.length === 1 ? '' : 's'} Earned</span>
         </div>
       </div>
@@ -157,26 +157,26 @@ export const MyCertificates = () => {
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Verified Completion Certificate</span>
                 </div>
-                <div className="flex items-center space-x-2 pt-2">
+                <div className="grid grid-cols-3 gap-1.5 xs:gap-2 pt-2">
                   <button
                     onClick={() => setSelectedCert(cert)}
-                    className="flex-1 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center"
+                    className="w-full py-2 px-1 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center truncate"
                   >
-                    <Eye className="w-3.5 h-3.5 mr-1" /> View
+                    <Eye className="w-3.5 h-3.5 mr-1 shrink-0" /> <span className="truncate">View</span>
                   </button>
 
                   <button
                     onClick={() => handleDownload(cert, 'PNG')}
-                    className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center"
+                    className="w-full py-2 px-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center truncate"
                   >
-                    <Download className="w-3.5 h-3.5 mr-1" /> PNG
+                    <Download className="w-3.5 h-3.5 mr-1 shrink-0" /> <span className="truncate">PNG</span>
                   </button>
 
                   <button
                     onClick={() => handleDownload(cert, 'PDF')}
-                    className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center"
+                    className="w-full py-2 px-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center truncate"
                   >
-                    <FileText className="w-3.5 h-3.5 mr-1" /> PDF
+                    <FileText className="w-3.5 h-3.5 mr-1 shrink-0" /> <span className="truncate">PDF</span>
                   </button>
                 </div>
               </div>

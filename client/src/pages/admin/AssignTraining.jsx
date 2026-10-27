@@ -320,19 +320,19 @@ export const AssignTraining = () => {
       </div>
 
       {/* SECTION 2: Modern Segmented Control Tab Switcher */}
-      <div className="inline-flex p-1.5 rounded-2xl bg-slate-100 border border-slate-200 gap-2">
+      <div className="flex flex-col sm:inline-flex sm:flex-row p-1.5 rounded-2xl bg-slate-100 border border-slate-200 gap-2">
         <button
           onClick={() => setActiveTab('auto')}
-          className={`flex items-center px-5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start px-4 sm:px-5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeTab === 'auto'
               ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80 font-bold'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
           }`}
         >
-          <Zap className="w-4 h-4 mr-2 text-amber-500" />
-          <span>Automatic Training Assignment</span>
+          <Zap className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
+          <span className="truncate">Automatic Training Assignment</span>
           {activeAutoRulesCount > 0 && (
-            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold border border-amber-200">
+            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold border border-amber-200 shrink-0">
               {activeAutoRulesCount} Active
             </span>
           )}
@@ -340,14 +340,14 @@ export const AssignTraining = () => {
 
         <button
           onClick={() => setActiveTab('targeted')}
-          className={`flex items-center px-5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+          className={`flex items-center justify-center sm:justify-start px-4 sm:px-5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
             activeTab === 'targeted'
               ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80 font-bold'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
           }`}
         >
-          <Target className="w-4 h-4 mr-2 text-emerald-600" />
-          <span>Targeted Training Assignment</span>
+          <Target className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
+          <span className="truncate">Targeted Training Assignment</span>
         </button>
       </div>
 

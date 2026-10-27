@@ -44,7 +44,11 @@ export const SocketProvider = ({ children }) => {
     return () => {
       newSocket.disconnect();
     };
-  }, [user]);
+  }, [
+    user?.id || user?._id,
+    user?.role,
+    user?.organizationId?.id || user?.organizationId?._id || user?.organizationId
+  ]);
 
   return (
     <SocketContext.Provider value={{ socket }}>

@@ -10,7 +10,8 @@ const {
   createAdmin,
   getEmployees,
   updateProfile,
-  updateUserStatus
+  updateUserStatus,
+  deleteUser
 } = require('../controllers/orgController');
 const { protect } = require('../middleware/authMiddleware');
 const { authorizeRoles } = require('../middleware/roleMiddleware');
@@ -38,5 +39,8 @@ router.put('/profile', updateProfile);
 
 // User Activation / Deactivation Route
 router.put('/users/:id/status', authorizeRoles('Admin'), updateUserStatus);
+
+// Permanent User Deletion Route
+router.delete('/users/:id', authorizeRoles('Admin'), deleteUser);
 
 module.exports = router;

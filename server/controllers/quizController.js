@@ -604,16 +604,18 @@ const submitQuiz = async (req, res, next) => {
         'QUIZ_PASSED',
         'Quiz Passed',
         `Congratulations! You passed the quiz for ${quiz.title} with a score of ${percentage}%.`,
-        { entityType: 'Quiz', entityId: quiz.id }
+        { entityType: 'QuizAttempt', entityId: attempt.id },
+        { preventDuplicates: true }
       );
-      if (quiz.createdBy) {
+      if (quiz.createdBy && quiz.createdBy !== userId) {
         await sendInstructorNotification(
           quiz.createdBy,
           orgId,
           'QUIZ_PASSED',
           'Employee Passed Quiz',
           `Employee ${empName} passed quiz '${quiz.title}' with ${percentage}%.`,
-          { entityType: 'Quiz', entityId: quiz.id }
+          { entityType: 'QuizAttempt', entityId: attempt.id },
+          { preventDuplicates: true }
         );
       }
     } else {
@@ -624,16 +626,18 @@ const submitQuiz = async (req, res, next) => {
         'QUIZ_FAILED',
         'Quiz Failed',
         `You did not pass the quiz for ${quiz.title}. Score: ${percentage}%.`,
-        { entityType: 'Quiz', entityId: quiz.id }
+        { entityType: 'QuizAttempt', entityId: attempt.id },
+        { preventDuplicates: true }
       );
-      if (quiz.createdBy) {
+      if (quiz.createdBy && quiz.createdBy !== userId) {
         await sendInstructorNotification(
           quiz.createdBy,
           orgId,
           'QUIZ_FAILED',
           'Employee Failed Quiz',
           `Employee ${empName} failed quiz '${quiz.title}' with ${percentage}%.`,
-          { entityType: 'Quiz', entityId: quiz.id }
+          { entityType: 'QuizAttempt', entityId: attempt.id },
+          { preventDuplicates: true }
         );
       }
     }
@@ -700,50 +704,136 @@ const getQuizAttempts = async (req, res, next) => {
 };
 
 /**
- * @desc    Log a security violation event (Focus Mode)
+ * @desc    Log a quiz focus-loss event and notify Organization Admin
  * @route   POST /api/quizzes/:id/security-event
  * @access  Private (Employee)
  */
 const logSecurityEvent = async (req, res, next) => {
   try {
-    const { eventType, details } = req.body;
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const { eventType, attemptId, details, timestamp } = req.body;
+    const orgId = String(req.user.organizationId?.id || req.user.organizationId?._id || req.user.organizationId);
     const userId = String(req.user.id || req.user._id);
     const quizId = String(req.params.id);
 
-    const quiz = await prisma.quiz.findFirst({
-      where: { id: quizId, organizationId: orgId }
+    let quiz = await prisma.quiz.findFirst({
+      where: { id: quizId, organizationId: orgId },
+      include: {
+        training: { select: { id: true, title: true } },
+        section: { select: { id: true, title: true } }
+      }
     });
+
+    if (!quiz) {
+      quiz = await prisma.quiz.findFirst({
+        where: { subSectionId: quizId, organizationId: orgId },
+        include: {
+          training: { select: { id: true, title: true } },
+          section: { select: { id: true, title: true } }
+        }
+      });
+    }
+
+    if (!quiz) {
+      quiz = await prisma.quiz.findFirst({
+        where: { trainingId: quizId, organizationId: orgId },
+        include: {
+          training: { select: { id: true, title: true } },
+          section: { select: { id: true, title: true } }
+        }
+      });
+    }
 
     if (!quiz) {
       throw new ApiError(404, 'Quiz not found');
     }
 
-    const employeeName = req.user.name || 'Employee';
-    const title = 'Quiz Security Alert';
-    const violationType = eventType === 'fullscreen_exit' ? 'exited Focus Mode/fullscreen during the quiz' : 'switched away from the quiz';
-    const violationMessage = `Quiz Security Alert — ${employeeName} ${violationType}.`;
+    // Verify authenticated Learner has an active in_progress quiz attempt
+    const activeAttempt = await prisma.quizAttempt.findFirst({
+      where: {
+        quizId: quiz.id,
+        employeeId: userId,
+        status: 'in_progress',
+        ...(attemptId ? { id: String(attemptId) } : {})
+      }
+    });
 
-    // 1. Notify Org Admin
+    if (!activeAttempt) {
+      // Not actively attempting quiz (e.g. already submitted, expired, or unmounted)
+      return res.status(200).json(
+        new ApiResponse(200, { ignored: true }, 'No active quiz attempt in progress')
+      );
+    }
+
+    // Server-side cooldown / debounce suppression (4 seconds)
+    const COOLDOWN_MS = 4000;
+    const recentAlert = await prisma.notification.findFirst({
+      where: {
+        organizationId: orgId,
+        type: 'QUIZ_FOCUS_ALERT',
+        relatedEntityType: 'Quiz',
+        relatedEntityId: quiz.id,
+        createdAt: {
+          gte: new Date(Date.now() - COOLDOWN_MS)
+        }
+      }
+    });
+
+    if (recentAlert) {
+      return res.status(200).json(
+        new ApiResponse(200, { deduplicated: true }, 'Focus-loss alert deduplicated within cooldown window')
+      );
+    }
+
+    // Determine normalized, neutral event type string
+    let displayEventType = 'Focus lost';
+    if (eventType === 'Left quiz tab' || eventType === 'tab_switch' || eventType === 'tab_hidden') {
+      displayEventType = 'Left quiz tab';
+    } else if (eventType === 'Window lost focus' || eventType === 'blur' || eventType === 'window_blur') {
+      displayEventType = 'Window lost focus';
+    } else if (eventType === 'Exited fullscreen' || eventType === 'fullscreen_exit') {
+      displayEventType = 'Exited fullscreen';
+    } else if (eventType === 'Esc key pressed' || eventType === 'esc_pressed') {
+      displayEventType = 'Esc key pressed';
+    } else if (typeof eventType === 'string' && eventType.trim()) {
+      displayEventType = eventType.trim();
+    }
+
+    const employeeName = req.user.name || 'Learner';
+    const courseName = quiz.training?.title || 'Training Course';
+    const quizName = quiz.title || (quiz.section?.title ? `${quiz.section.title} Quiz` : 'Quiz Assessment');
+
+    // Parse event timestamp
+    const eventTime = timestamp ? new Date(timestamp) : new Date();
+    const formattedTime = !isNaN(eventTime.getTime())
+      ? eventTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+    // Build neutral alert title and message
+    const title = 'Quiz Focus Alert';
+    const message = `Quiz Focus Alert: ${employeeName} left the active quiz screen during ${quizName} in ${courseName} at ${formattedTime}. (${displayEventType})`;
+
+    // 1. Notify Org Admin(s) of this Learner's organization only
     await sendAdminNotification(
       orgId,
-      'security_alert',
+      'QUIZ_FOCUS_ALERT',
       title,
-      violationMessage,
+      message,
       { entityType: 'Quiz', entityId: quiz.id },
       { preventDuplicates: false }
     );
 
-    // 2. Audit Log
+    // 2. Audit Log with neutral wording
     await logAuditAction(
       req.user,
-      'quiz_security_violation',
+      'QUIZ_FOCUS_ALERT',
       'Quiz',
       quiz.id,
-      `Event: ${eventType}. Details: ${details || violationMessage}`
+      `Quiz focus alert: ${employeeName} (${displayEventType}) during ${quizName} in ${courseName} at ${formattedTime}.`
     );
 
-    res.status(200).json(new ApiResponse(200, null, 'Security event logged successfully'));
+    res.status(200).json(
+      new ApiResponse(200, { reported: true, eventType: displayEventType }, 'Quiz focus alert processed successfully')
+    );
   } catch (error) {
     next(error);
   }

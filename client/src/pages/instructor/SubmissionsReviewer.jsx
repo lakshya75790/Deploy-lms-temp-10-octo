@@ -303,7 +303,13 @@ export const SubmissionsReviewer = () => {
 
       {/* Review Modal */}
       {showReviewModal && (
-        <Modal isOpen={showReviewModal} onClose={() => setShowReviewModal(false)} title="Evaluate Assignment Submission">
+        <Modal
+          isOpen={showReviewModal}
+          onClose={() => setShowReviewModal(false)}
+          title="Evaluate Assignment Submission"
+          closeOnBackdropClick={false}
+          closeOnEscape={false}
+        >
           <form onSubmit={handleReviewSubmit} className="space-y-5">
             {/* Employee & Assignment Header */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
@@ -383,7 +389,7 @@ export const SubmissionsReviewer = () => {
               <button
                 type="button"
                 onClick={() => setShowReviewModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Cancel
               </button>

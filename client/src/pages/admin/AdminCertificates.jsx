@@ -553,28 +553,34 @@ export const AdminCertificates = () => {
                     </label>
 
                     {template.logoUrl ? (
-                      <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex flex-col gap-3">
                         <div className="flex items-center space-x-3 min-w-0">
-                          <div className="w-14 h-14 rounded-lg border border-slate-200 bg-white p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                          <div
+                            className="w-14 h-14 rounded-lg border border-slate-200 dark:border-slate-700 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs"
+                            style={{ backgroundColor: '#ffffff' }}
+                          >
                             <img src={template.logoUrl} alt="Org Logo" className="max-h-full max-w-full object-contain" />
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-slate-800 truncate">Organization Logo</p>
-                            <p className="text-[11px] text-slate-400">Renders on upper certificate header</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">Organization Logo</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug break-words">
+                              Renders on upper certificate header
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          <label className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer flex items-center">
-                            <Upload className="w-3.5 h-3.5 mr-1" /> Replace
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                          <label className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center">
+                            <Upload className="w-3.5 h-3.5 mr-1 shrink-0" /> Replace
                             <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                           </label>
                           <button
                             type="button"
                             onClick={handleLogoDelete}
-                            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-colors cursor-pointer flex items-center"
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
                             title="Delete Logo"
                           >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Image
+                            <Trash2 className="w-3.5 h-3.5 mr-1 shrink-0" /> Delete Image
                           </button>
                         </div>
                       </div>
@@ -667,28 +673,40 @@ export const AdminCertificates = () => {
                     </label>
 
                     {template.signatureUrl ? (
-                      <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex flex-col gap-3">
                         <div className="flex items-center space-x-3 min-w-0">
-                          <div className="w-20 h-12 rounded-lg border border-slate-200 bg-white p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:8px_8px]">
+                          {/* Dedicated light-neutral preview container for signature image */}
+                          <div
+                            className="signature-preview-surface w-20 h-12 rounded-lg border border-slate-300 dark:border-slate-500 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs"
+                            style={{
+                              backgroundColor: '#ffffff',
+                              backgroundImage: 'radial-gradient(#cbd5e1 1.2px, transparent 1.2px)',
+                              backgroundSize: '8px 8px'
+                            }}
+                            title="Signature Preview (Transparent Background)"
+                          >
                             <img src={template.signatureUrl} alt="Signature" className="max-h-full max-w-full object-contain" />
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-slate-800 truncate">Signature Image</p>
-                            <p className="text-[11px] text-emerald-600 font-medium">Automatic background transparency applied</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">Signature Image</p>
+                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 leading-snug break-words">
+                              Automatic background transparency applied
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          <label className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer flex items-center">
-                            <Upload className="w-3.5 h-3.5 mr-1" /> Replace
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                          <label className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center">
+                            <Upload className="w-3.5 h-3.5 mr-1 shrink-0" /> Replace
                             <input type="file" accept="image/*" onChange={handleSignatureUpload} className="hidden" />
                           </label>
                           <button
                             type="button"
                             onClick={handleSignatureDelete}
-                            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-colors cursor-pointer flex items-center"
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
                             title="Delete Signature"
                           >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Image
+                            <Trash2 className="w-3.5 h-3.5 mr-1 shrink-0" /> Delete Image
                           </button>
                         </div>
                       </div>

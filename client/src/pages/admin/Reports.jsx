@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getFullOrgReport } from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -119,6 +119,94 @@ export const Reports = () => {
   const mandatoryAnalytics = reportData?.mandatoryAnalytics || [];
   const complianceLeaderboard = reportData?.complianceLeaderboard || [];
 
+  // Fast lookup maps for resolving learner group and role
+  const deptMap = useMemo(() => {
+    const map = new Map();
+    departmentAnalytics.forEach(d => {
+      const id = d.departmentId || d._id;
+      if (id && d.departmentName) {
+        map.set(String(id), d.departmentName);
+      }
+    });
+    return map;
+  }, [departmentAnalytics]);
+
+  const empMap = useMemo(() => {
+    const byEmail = new Map();
+    const byName = new Map();
+    const byId = new Map();
+
+    employeeAnalytics.forEach(emp => {
+      if (emp.email) {
+        byEmail.set(emp.email.toLowerCase().trim(), emp);
+      }
+      if (emp.name) {
+        byName.set(emp.name.toLowerCase().trim(), emp);
+      }
+      if (emp._id) {
+        byId.set(String(emp._id), emp);
+      }
+    });
+
+    return { byEmail, byName, byId };
+  }, [employeeAnalytics]);
+
+  // Enriched overdueReport resolving learner's actual group & role with appropriate fallbacks
+  const enrichedOverdueReport = useMemo(() => {
+    return overdueReport.map(item => {
+      const emailKey = item.employeeEmail ? item.employeeEmail.toLowerCase().trim() : '';
+      const nameKey = item.employeeName ? item.employeeName.toLowerCase().trim() : '';
+      const idKey = item.employeeId ? String(item.employeeId) : '';
+
+      const matchedEmp = (emailKey && empMap.byEmail.get(emailKey))
+        || (nameKey && empMap.byName.get(nameKey))
+        || (idKey && empMap.byId.get(idKey));
+
+      // Resolve Group / Department
+      let rawDept = '';
+      let resolvedDeptId = matchedEmp?.departmentId || item.departmentId || null;
+
+      if (matchedEmp?.departmentName && matchedEmp.departmentName !== 'Unassigned') {
+        rawDept = matchedEmp.departmentName;
+      } else if (matchedEmp?.department && typeof matchedEmp.department === 'object' && matchedEmp.department.name) {
+        rawDept = matchedEmp.department.name;
+      } else if (matchedEmp?.department && typeof matchedEmp.department === 'string' && matchedEmp.department !== 'Unassigned') {
+        rawDept = matchedEmp.department;
+      } else if (resolvedDeptId && deptMap.has(String(resolvedDeptId))) {
+        rawDept = deptMap.get(String(resolvedDeptId));
+      } else if (item.departmentName && item.departmentName !== 'Unassigned') {
+        rawDept = item.departmentName;
+      } else if (item.department && typeof item.department === 'object' && item.department.name) {
+        rawDept = item.department.name;
+      }
+
+      const hasGroup = Boolean(rawDept && rawDept.trim() && rawDept.trim() !== 'Unassigned');
+      const departmentName = hasGroup ? rawDept.trim() : 'No Group Assigned';
+
+      // Resolve Role
+      let rawRole = '';
+      if (matchedEmp?.jobRole && matchedEmp.jobRole !== 'Unassigned') {
+        rawRole = matchedEmp.jobRole;
+      } else if (item.jobRole && item.jobRole !== 'Unassigned') {
+        rawRole = item.jobRole;
+      } else if (matchedEmp?.role && matchedEmp.role !== 'Unassigned' && matchedEmp.role !== 'Employee') {
+        rawRole = matchedEmp.role;
+      }
+
+      const hasRole = Boolean(rawRole && rawRole.trim() && rawRole.trim() !== 'Unassigned');
+      const jobRole = hasRole ? rawRole.trim() : 'No Role Assigned';
+
+      return {
+        ...item,
+        departmentName,
+        departmentId: resolvedDeptId,
+        jobRole,
+        hasActualGroup: hasGroup,
+        hasActualRole: hasRole
+      };
+    });
+  }, [overdueReport, empMap, deptMap]);
+
   // Filtered Employee List
   const filteredEmployees = employeeAnalytics.filter(emp => {
     const term = search.toLowerCase();
@@ -142,15 +230,20 @@ export const Reports = () => {
   });
 
   // Filtered Overdue Items
-  const filteredOverdue = overdueReport.filter(item => {
+  const filteredOverdue = enrichedOverdueReport.filter(item => {
     const term = search.toLowerCase();
     const matchesSearch = !search || (
-      item.employeeName.toLowerCase().includes(term) ||
-      item.trainingTitle.toLowerCase().includes(term) ||
-      item.departmentName.toLowerCase().includes(term)
+      (item.employeeName && item.employeeName.toLowerCase().includes(term)) ||
+      (item.employeeEmail && item.employeeEmail.toLowerCase().includes(term)) ||
+      (item.trainingTitle && item.trainingTitle.toLowerCase().includes(term)) ||
+      (item.departmentName && item.departmentName.toLowerCase().includes(term)) ||
+      (item.jobRole && item.jobRole.toLowerCase().includes(term))
     );
-    const matchesDept = !selectedDept || item.departmentName === selectedDept;
-    return matchesSearch && matchesDept;
+    const matchesDept = !selectedDept || 
+      String(item.departmentId) === String(selectedDept) || 
+      item.departmentName === selectedDept;
+    const matchesRole = !selectedRole || item.jobRole === selectedRole;
+    return matchesSearch && matchesDept && matchesRole;
   });
 
   // Filtered Training Analytics
@@ -174,12 +267,12 @@ export const Reports = () => {
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       {/* Top Header & Global Actions */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-4 xs:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 mb-2">
             <BarChart3 className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> Enterprise Analytics Suite
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight font-heading">
+          <h1 className="text-xl xs:text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight font-heading">
             Organizational Reports & Analytics
           </h1>
           <p className="text-xs text-slate-500">
@@ -187,7 +280,7 @@ export const Reports = () => {
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 relative">
+        <div className="flex flex-wrap items-center gap-2.5 relative">
           <button
             onClick={() => fetchReports(true)}
             disabled={refreshing || loading}
@@ -209,7 +302,7 @@ export const Reports = () => {
             </button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-fade-in space-y-1">
+              <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-fade-in space-y-1">
                 <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 mb-1">
                   Download CSV / Excel
                 </p>
@@ -242,7 +335,7 @@ export const Reports = () => {
                   Course Completion Report
                 </button>
                 <button
-                  onClick={() => { exportOverdueReport(overdueReport); setShowExportMenu(false); }}
+                  onClick={() => { exportOverdueReport(enrichedOverdueReport); setShowExportMenu(false); }}
                   className="w-full flex items-center px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
                 >
                   <Clock className="w-4 h-4 mr-2.5 text-rose-600" />
@@ -872,8 +965,12 @@ export const Reports = () => {
                         <span className="block text-[10px] text-slate-400 font-normal">{item.employeeEmail}</span>
                       </td>
                       <td className="p-3.5">
-                        <p className="font-semibold text-slate-800">{item.departmentName}</p>
-                        <p className="text-[10px] text-indigo-600">{item.jobRole}</p>
+                        <p className={`font-semibold ${!item.hasActualGroup ? 'text-slate-400 font-normal italic' : 'text-slate-800'}`}>
+                          {item.departmentName}
+                        </p>
+                        <p className={`text-[10px] ${!item.hasActualRole ? 'text-slate-400 italic' : 'text-indigo-600'}`}>
+                          {item.jobRole}
+                        </p>
                       </td>
                       <td className="p-3.5 font-bold text-rose-600">{item.trainingTitle}</td>
                       <td className="p-3.5 font-mono text-slate-500">{formatDate(item.deadline)}</td>
@@ -1109,7 +1206,19 @@ export const Reports = () => {
                 <div key={e.assignmentId} className="p-3 text-xs flex items-center justify-between">
                   <div>
                     <p className="font-bold text-slate-900">{e.employeeName}</p>
-                    <p className="text-[10px] text-slate-400">{e.departmentName} • {e.jobRole}</p>
+                    {(() => {
+                      const empDetails = (e.employeeEmail && empMap.byEmail.get(e.employeeEmail.toLowerCase().trim()))
+                        || (e.employeeName && empMap.byName.get(e.employeeName.toLowerCase().trim()));
+                      const group = (empDetails?.departmentName && empDetails.departmentName !== 'Unassigned')
+                        ? empDetails.departmentName
+                        : (e.departmentName && e.departmentName !== 'Unassigned') ? e.departmentName : 'No Group Assigned';
+                      const role = (empDetails?.jobRole && empDetails.jobRole !== 'Unassigned')
+                        ? empDetails.jobRole
+                        : (e.jobRole && e.jobRole !== 'Unassigned') ? e.jobRole : 'No Role Assigned';
+                      return (
+                        <p className="text-[10px] text-slate-400">{group} • {role}</p>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center space-x-3">

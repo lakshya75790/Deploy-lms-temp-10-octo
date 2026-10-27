@@ -17,6 +17,9 @@ const getPopulatedTraining = async (trainingId) => {
       sections: {
         orderBy: { order: 'asc' },
         include: {
+          quizzes: {
+            include: { questions: { orderBy: { createdAt: 'asc' } } }
+          },
           subSections: {
             orderBy: { order: 'asc' },
             include: {
@@ -27,7 +30,7 @@ const getPopulatedTraining = async (trainingId) => {
         }
       },
       quizzes: {
-        include: { questions: true }
+        include: { questions: { orderBy: { createdAt: 'asc' } } }
       },
       assignments: true
     }
@@ -42,6 +45,20 @@ const getPopulatedTraining = async (trainingId) => {
 
   if (transformed.sections && Array.isArray(transformed.sections)) {
     transformed.sections = transformed.sections.map(sec => {
+      // Find section quiz: check section's direct quizzes, or training.quizzes matching sectionId, or fallback to subSectionId
+      const matchingSectionQuiz = (sec.quizzes && sec.quizzes[0]) ||
+        training.quizzes?.find(q => q.sectionId === sec.id) ||
+        training.quizzes?.find(q => sec.subSections?.some(s => s.id === q.subSectionId));
+
+      if (matchingSectionQuiz) {
+        sec.quiz = withId(matchingSectionQuiz);
+        if (sec.quiz.questions) {
+          sec.quiz.questions = sec.quiz.questions.map(withId);
+        }
+      } else {
+        sec.quiz = null;
+      }
+
       if (sec.subSections && Array.isArray(sec.subSections)) {
         sec.subSections = sec.subSections.map(sub => {
           sub.pdfResources = (sub.pdfResources || []).map(r => {
@@ -50,7 +67,7 @@ const getPopulatedTraining = async (trainingId) => {
             transformedPdf.filePublicId = r.pdfPublicId || r.filePublicId || '';
             return transformedPdf;
           });
-          const matchingQuiz = training.quizzes?.find(q => q.subSectionId === sub.id);
+          const matchingQuiz = training.quizzes?.find(q => q.subSectionId === sub.id || (sec.quiz && sec.quiz.id === q.id));
           if (matchingQuiz || sub.hasQuiz || sub.quizId) {
             sub.hasQuiz = true;
             sub.quizId = matchingQuiz ? withId(matchingQuiz) : sub.quizId;
@@ -107,9 +124,9 @@ const reconcileTrainingProgress = async (trainingId) => {
       training.sections.flatMap(sec => sec.subSections.map(sub => sub.id))
     );
 
-    const hasQuiz = training.quizzes && training.quizzes.length > 0;
-    const hasAssignment = training.assignments && training.assignments.length > 0;
-    const totalRequiredItems = validSubSectionIds.size + (hasQuiz ? 1 : 0) + (hasAssignment ? 1 : 0);
+    const quizCount = training.quizzes?.length || 0;
+    const assignmentCount = training.assignments?.length || 0;
+    const totalRequiredItems = validSubSectionIds.size + quizCount + assignmentCount;
 
     const allProgressRecords = await prisma.trainingProgress.findMany({
       where: { trainingId: trgId }
@@ -123,16 +140,18 @@ const reconcileTrainingProgress = async (trainingId) => {
       // Keep only subSection IDs that still exist in validSubSectionIds
       const validCompletedIds = currentCompleted.filter(id => validSubSectionIds.has(id));
 
-      // Check if employee passed any quiz for this training
+      // Check how many quizzes employee has passed for this training
       let passedQuizCount = 0;
-      if (hasQuiz) {
-        const passedAttempt = await prisma.quizAttempt.findFirst({
+      if (quizCount > 0) {
+        const passedAttempts = await prisma.quizAttempt.findMany({
           where: {
             trainingAssignmentId: progressRec.trainingAssignmentId,
             passed: true
-          }
+          },
+          select: { quizId: true }
         });
-        if (passedAttempt) passedQuizCount = 1;
+        const distinctPassedQuizzes = new Set(passedAttempts.map(a => a.quizId));
+        passedQuizCount = distinctPassedQuizzes.size;
       }
 
       // Check if employee submitted any assignment for this training
@@ -276,6 +295,7 @@ const saveFullCourse = async (req, res, next) => {
 
     const activeSectionIds = [];
     const activeSubSectionIds = [];
+    const activeQuizIds = [];
 
     if (sections && Array.isArray(sections)) {
       for (let i = 0; i < sections.length; i++) {
@@ -308,11 +328,9 @@ const saveFullCourse = async (req, res, next) => {
         }
         activeSectionIds.push(currentSec.id);
 
-        const lecturesList = sec.lectures && sec.lectures.length > 0
-          ? sec.lectures
-          : [{ title: `${sec.title} Lecture 1`, description: sec.description || '' }];
-
+        const lecturesList = Array.isArray(sec.lectures) ? sec.lectures : [];
         const existingSubSecs = existingSec ? (existingSec.subSections || []) : [];
+        let firstSubSec = null;
 
         for (let j = 0; j < lecturesList.length; j++) {
           const lec = lecturesList[j];
@@ -351,128 +369,142 @@ const saveFullCourse = async (req, res, next) => {
             });
           }
           activeSubSectionIds.push(currentSubSec.id);
+          if (j === 0) {
+            firstSubSec = currentSubSec;
+          }
+        }
 
-          // Handle Quiz for section 0 lecture 0
-          if (sec.quiz && sec.quiz.questions && sec.quiz.questions.length > 0 && j === 0) {
-            const existingQuiz = await prisma.quiz.findFirst({
-              where: { trainingId: training.id }
+        // Handle Quiz for this section (if quiz is configured)
+        if (sec.quiz && sec.quiz.questions && sec.quiz.questions.length > 0) {
+          const targetSubSecId = firstSubSec ? firstSubSec.id : null;
+          
+          let existingQuiz = null;
+          if (sec.quiz.id || sec.quiz._id) {
+            existingQuiz = await prisma.quiz.findFirst({
+              where: { id: String(sec.quiz.id || sec.quiz._id), trainingId: training.id }
             });
-
-            if (existingQuiz) {
-              await prisma.quizQuestion.deleteMany({ where: { quizId: existingQuiz.id } });
-              const updatedQuiz = await prisma.quiz.update({
-                where: { id: existingQuiz.id },
-                data: {
-                  title: sec.quiz.title || `${sec.title} Quiz`,
-                  subSectionId: currentSubSec.id,
-                  timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
-                  passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
-                  questions: {
-                    create: sec.quiz.questions.map(q => {
-                      const qType = q.questionType || (q.options && q.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-                      if (qType === 'TRUE_FALSE') {
-                        const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
-                        const txt = q.correctAnswerText || (idx === 0 ? 'True' : 'False');
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'TRUE_FALSE',
-                          options: ['True', 'False'],
-                          correctAnswerIndex: idx,
-                          correctAnswerText: txt
-                        };
-                      } else if (qType === 'FILL_IN_BLANK') {
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'FILL_IN_BLANK',
-                          options: [],
-                          correctAnswerIndex: null,
-                          correctAnswerText: (q.correctAnswerText || '').trim()
-                        };
-                      } else {
-                        const opts = Array.isArray(q.options) ? q.options : [];
-                        const idx = q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0;
-                        const txt = q.correctAnswerText || (opts[idx] || '');
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'MCQ',
-                          options: opts,
-                          correctAnswerIndex: idx,
-                          correctAnswerText: txt
-                        };
-                      }
-                    })
-                  }
-                }
-              });
-
-              await prisma.trainingSubSection.update({
-                where: { id: currentSubSec.id },
-                data: { hasQuiz: true, quizId: updatedQuiz.id }
-              });
-            } else {
-              const newQuiz = await prisma.quiz.create({
-                data: {
-                  title: sec.quiz.title || `${sec.title} Quiz`,
-                  trainingId: training.id,
-                  subSectionId: currentSubSec.id,
-                  timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
-                  passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
-                  createdBy: instructorId,
-                  organizationId: orgId,
-                  questions: {
-                    create: sec.quiz.questions.map(q => {
-                      const qType = q.questionType || (q.options && q.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-                      if (qType === 'TRUE_FALSE') {
-                        const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
-                        const txt = q.correctAnswerText || (idx === 0 ? 'True' : 'False');
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'TRUE_FALSE',
-                          options: ['True', 'False'],
-                          correctAnswerIndex: idx,
-                          correctAnswerText: txt
-                        };
-                      } else if (qType === 'FILL_IN_BLANK') {
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'FILL_IN_BLANK',
-                          options: [],
-                          correctAnswerIndex: null,
-                          correctAnswerText: (q.correctAnswerText || '').trim()
-                        };
-                      } else {
-                        const opts = Array.isArray(q.options) ? q.options : [];
-                        const idx = q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0;
-                        const txt = q.correctAnswerText || (opts[idx] || '');
-                        return {
-                          questionText: q.questionText,
-                          questionType: 'MCQ',
-                          options: opts,
-                          correctAnswerIndex: idx,
-                          correctAnswerText: txt
-                        };
-                      }
-                    })
-                  }
-                }
-              });
-
-              await prisma.trainingSubSection.update({
-                where: { id: currentSubSec.id },
-                data: { hasQuiz: true, quizId: newQuiz.id }
-              });
-            }
+          }
+          if (!existingQuiz && currentSec.id) {
+            existingQuiz = await prisma.quiz.findFirst({
+              where: { sectionId: currentSec.id, trainingId: training.id }
+            });
+          }
+          if (!existingQuiz && targetSubSecId) {
+            existingQuiz = await prisma.quiz.findFirst({
+              where: { subSectionId: targetSubSecId, trainingId: training.id }
+            });
           }
 
-          // Handle PDF Resources for section 0 lecture 0
-          if (resources && resources.length > 0 && i === 0 && j === 0) {
+          const quizQuestionsData = sec.quiz.questions.map((q) => {
+            const qType = q.questionType || (q.options && q.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+            if (qType === 'TRUE_FALSE') {
+              const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
+              const txt = q.correctAnswerText || (idx === 0 ? 'True' : 'False');
+              return {
+                questionText: q.questionText,
+                questionType: 'TRUE_FALSE',
+                options: ['True', 'False'],
+                correctAnswerIndex: idx,
+                correctAnswerText: txt
+              };
+            } else if (qType === 'FILL_IN_BLANK') {
+              return {
+                questionText: q.questionText,
+                questionType: 'FILL_IN_BLANK',
+                options: [],
+                correctAnswerIndex: null,
+                correctAnswerText: (q.correctAnswerText || '').trim()
+              };
+            } else {
+              const opts = Array.isArray(q.options) ? q.options : [];
+              const idx = q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0;
+              const txt = q.correctAnswerText || (opts[idx] || '');
+              return {
+                questionText: q.questionText,
+                questionType: 'MCQ',
+                options: opts,
+                correctAnswerIndex: idx,
+                correctAnswerText: txt
+              };
+            }
+          });
+
+          let savedQuizId;
+          if (existingQuiz) {
+            await prisma.quizQuestion.deleteMany({ where: { quizId: existingQuiz.id } });
+            const updatedQuiz = await prisma.quiz.update({
+              where: { id: existingQuiz.id },
+              data: {
+                title: sec.quiz.title || `${sec.title} Quiz`,
+                sectionId: currentSec.id,
+                subSectionId: targetSubSecId,
+                timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+                passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
+                questions: {
+                  create: quizQuestionsData
+                }
+              }
+            });
+            savedQuizId = updatedQuiz.id;
+          } else {
+            const newQuiz = await prisma.quiz.create({
+              data: {
+                title: sec.quiz.title || `${sec.title} Quiz`,
+                trainingId: training.id,
+                sectionId: currentSec.id,
+                subSectionId: targetSubSecId,
+                timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+                passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
+                createdBy: instructorId,
+                organizationId: orgId,
+                questions: {
+                  create: quizQuestionsData
+                }
+              }
+            });
+            savedQuizId = newQuiz.id;
+          }
+
+          activeQuizIds.push(savedQuizId);
+
+          if (firstSubSec && savedQuizId) {
+            await prisma.trainingSubSection.update({
+              where: { id: firstSubSec.id },
+              data: { hasQuiz: true, quizId: savedQuizId }
+            });
+          }
+        } else {
+          // No quiz on this section (or quiz was removed)
+          if (currentSec.id) {
+            const existingSectionQuiz = await prisma.quiz.findFirst({
+              where: { sectionId: currentSec.id, trainingId: training.id }
+            });
+            if (existingSectionQuiz && (!sec.quiz || !sec.quiz.questions || sec.quiz.questions.length === 0)) {
+              await prisma.quiz.delete({ where: { id: existingSectionQuiz.id } }).catch(() => {});
+              if (firstSubSec) {
+                await prisma.trainingSubSection.update({
+                  where: { id: firstSubSec.id },
+                  data: { hasQuiz: false, quizId: null }
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+
+        // Handle PDF Resources for section 0
+        if (resources && resources.length > 0 && i === 0) {
+          const targetResourceSubSec = firstSubSec || (await prisma.trainingSubSection.findFirst({
+            where: { section: { trainingId: training.id } }
+          }));
+
+          if (targetResourceSubSec) {
             await prisma.pdfResource.deleteMany({
-              where: { subSectionId: currentSubSec.id }
+              where: { subSectionId: targetResourceSubSec.id }
             });
             for (const r of resources) {
               await prisma.pdfResource.create({
                 data: {
-                  subSectionId: currentSubSec.id,
+                  subSectionId: targetResourceSubSec.id,
                   title: r.title || r.name || r.originalName || 'Resource PDF',
                   pdfUrl: r.pdfUrl || r.fileUrl || r.url || '',
                   pdfPublicId: r.pdfPublicId || r.filePublicId || r.publicId || '',
@@ -590,7 +622,16 @@ const saveFullCourse = async (req, res, next) => {
         `Instructor ${req.user.name || 'Instructor'} created a new training: ${title}.`,
         { entityType: 'Training', entityId: training.id }
       );
+      let isCreatorAdmin = false;
       if (training.createdBy) {
+        const creator = await prisma.user.findUnique({
+          where: { id: training.createdBy },
+          select: { role: true }
+        });
+        isCreatorAdmin = creator?.role === 'Admin';
+      }
+
+      if (training.createdBy && !isCreatorAdmin) {
         await sendUserNotification(
           training.createdBy,
           orgId,
@@ -598,7 +639,8 @@ const saveFullCourse = async (req, res, next) => {
           'TRAINING_CREATED',
           'Training Created',
           `Your training '${title}' was created successfully.`,
-          { entityType: 'Training', entityId: training.id }
+          { entityType: 'Training', entityId: training.id },
+          { preventDuplicates: true }
         );
       }
     } else {
@@ -610,7 +652,8 @@ const saveFullCourse = async (req, res, next) => {
           'TRAINING_UPDATED',
           'Training Updated',
           `Training '${title}' details updated.`,
-          { entityType: 'Training', entityId: training.id }
+          { entityType: 'Training', entityId: training.id },
+          { preventDuplicates: true }
         );
       }
     }
@@ -621,18 +664,26 @@ const saveFullCourse = async (req, res, next) => {
         'TRAINING_PUBLISHED',
         'Training Published',
         `Training '${title}' is now published.`,
-        { entityType: 'Training', entityId: training.id }
+        { entityType: 'Training', entityId: training.id },
+        { preventDuplicates: true }
       );
       if (training.createdBy) {
-        await sendUserNotification(
-          training.createdBy,
-          orgId,
-          'Instructor',
-          'TRAINING_PUBLISHED',
-          'Training Published',
-          `Your training '${title}' is now published.`,
-          { entityType: 'Training', entityId: training.id }
-        );
+        const creator = await prisma.user.findUnique({
+          where: { id: training.createdBy },
+          select: { role: true }
+        });
+        if (creator && creator.role !== 'Admin') {
+          await sendUserNotification(
+            training.createdBy,
+            orgId,
+            'Instructor',
+            'TRAINING_PUBLISHED',
+            'Training Published',
+            `Your training '${title}' is now published.`,
+            { entityType: 'Training', entityId: training.id },
+            { preventDuplicates: true }
+          );
+        }
       }
     }
 
@@ -871,18 +922,26 @@ const updateTraining = async (req, res, next) => {
         'TRAINING_PUBLISHED',
         'Training Published',
         `Training '${updatedTraining.title}' is now published.`,
-        { entityType: 'Training', entityId: existing.id }
+        { entityType: 'Training', entityId: existing.id },
+        { preventDuplicates: true }
       );
       if (existing.createdBy) {
-        await sendUserNotification(
-          existing.createdBy,
-          orgId,
-          'Instructor',
-          'TRAINING_PUBLISHED',
-          'Training Published',
-          `Your training '${updatedTraining.title}' is now published.`,
-          { entityType: 'Training', entityId: existing.id }
-        );
+        const creator = await prisma.user.findUnique({
+          where: { id: existing.createdBy },
+          select: { role: true }
+        });
+        if (creator && creator.role !== 'Admin') {
+          await sendUserNotification(
+            existing.createdBy,
+            orgId,
+            'Instructor',
+            'TRAINING_PUBLISHED',
+            'Training Published',
+            `Your training '${updatedTraining.title}' is now published.`,
+            { entityType: 'Training', entityId: existing.id },
+            { preventDuplicates: true }
+          );
+        }
       }
     }
 
@@ -935,18 +994,26 @@ const deleteTraining = async (req, res, next) => {
       'TRAINING_DELETED',
       'Training Deleted',
       `Training '${training.title}' has been deleted/archived.`,
-      { entityType: 'Training', entityId: training.id }
+      { entityType: 'Training', entityId: training.id },
+      { preventDuplicates: true }
     );
     if (training.createdBy) {
-      await sendUserNotification(
-        training.createdBy,
-        orgId,
-        'Instructor',
-        'TRAINING_DELETED',
-        'Training Deleted',
-        `Training '${training.title}' has been deleted.`,
-        { entityType: 'Training', entityId: training.id }
-      );
+      const creator = await prisma.user.findUnique({
+        where: { id: training.createdBy },
+        select: { role: true }
+      });
+      if (creator && creator.role !== 'Admin') {
+        await sendUserNotification(
+          training.createdBy,
+          orgId,
+          'Instructor',
+          'TRAINING_DELETED',
+          'Training Deleted',
+          `Training '${training.title}' has been deleted.`,
+          { entityType: 'Training', entityId: training.id },
+          { preventDuplicates: true }
+        );
+      }
     }
 
     res.status(200).json(new ApiResponse(200, {}, 'Training archived successfully'));
@@ -1282,6 +1349,7 @@ const deleteSubSection = async (req, res, next) => {
 };
 
 module.exports = {
+  getPopulatedTraining,
   saveFullCourse,
   createTraining,
   getTrainings,

@@ -84,6 +84,10 @@ export const TrainingPlayer = () => {
   const [violationWarning, setViolationWarning] = useState('');
   const lastViolationReportTime = useRef(0);
   const lastViolationReportType = useRef(null);
+  const isFocusLostRef = useRef(false);
+  const focusLossBatchTimerRef = useRef(null);
+  const pendingFocusEventsRef = useRef(new Set());
+  const wasInFullscreenRef = useRef(false);
 
   // Sync with global Focus Mode layout state
   useEffect(() => {
@@ -97,6 +101,7 @@ export const TrainingPlayer = () => {
 
   const quizTimerRef = useRef(null);
   const isSubmittingQuizRef = useRef(false);
+  const hasAutoSubmittedRef = useRef(false);
   const quizStartTimeRef = useRef(null);
   const activeQuizAttemptIdRef = useRef(null);
 
@@ -166,26 +171,34 @@ export const TrainingPlayer = () => {
     return url;
   };
 
-  // Extract flat list of syllabus items (Lessons, Quizzes, Assignments placed at very end)
+  // Extract flat list of syllabus items (Lessons, Quizzes per section, Assignments placed at very end)
   const extractSyllabusItems = (payload) => {
     if (!payload || !payload.assignment || !payload.assignment.trainingId) return [];
     const training = payload.assignment.trainingId;
     const items = [];
+    const addedQuizIds = new Set();
 
     if (training.sections && Array.isArray(training.sections)) {
       training.sections.forEach((sec, sIdx) => {
+        // 1. Add all lectures/lessons for this section
         if (sec.subSections && Array.isArray(sec.subSections)) {
-          sec.subSections.forEach((sub, lIdx) => {
-            if (sub.quizId) {
-              items.push({
-                type: 'quiz',
-                id: sub.quizId._id || sub.quizId,
-                title: sub.quizId.title || `Quiz ${sIdx + 1}`,
-                sectionTitle: sec.title,
-                timeLimitMinutes: sub.quizId.timeLimitMinutes || 15,
-                passingScorePercent: sub.quizId.passingScorePercent || 70,
-                questionsCount: sub.quizId.questions?.length || 0
-              });
+          sec.subSections.forEach((sub) => {
+            // If this subsection was legacy quiz container without lecture content
+            if (sub.quizId && !sub.videoUrl && (!sub.title || sub.title.toLowerCase().includes('quiz'))) {
+              const qObj = sub.quizId;
+              const qId = qObj._id || qObj.id || qObj;
+              if (!addedQuizIds.has(String(qId))) {
+                addedQuizIds.add(String(qId));
+                items.push({
+                  type: 'quiz',
+                  id: qId,
+                  title: qObj.title || `${sec.title} Quiz`,
+                  sectionTitle: sec.title,
+                  timeLimitMinutes: qObj.timeLimitMinutes || 15,
+                  passingScorePercent: qObj.passingScorePercent || 70,
+                  questionsCount: qObj.questions?.length || 0
+                });
+              }
             } else {
               items.push({
                 type: 'lesson',
@@ -199,6 +212,28 @@ export const TrainingPlayer = () => {
               });
             }
           });
+        }
+
+        // 2. Add this section's quiz right after its lectures
+        const secQuiz = sec.quiz ||
+          (sec.quizzes && sec.quizzes[0]) ||
+          training.quizzes?.find(q => (q.sectionId && (q.sectionId === sec.id || q.sectionId === sec._id)) ||
+            (q.subSectionId && sec.subSections?.some(s => (s.id || s._id) === q.subSectionId)));
+
+        if (secQuiz) {
+          const qId = secQuiz._id || secQuiz.id;
+          if (qId && !addedQuizIds.has(String(qId))) {
+            addedQuizIds.add(String(qId));
+            items.push({
+              type: 'quiz',
+              id: qId,
+              title: secQuiz.title || `${sec.title} Quiz`,
+              sectionTitle: sec.title,
+              timeLimitMinutes: secQuiz.timeLimitMinutes || 15,
+              passingScorePercent: secQuiz.passingScorePercent || 70,
+              questionsCount: secQuiz.questions?.length || 0
+            });
+          }
         }
       });
     }
@@ -330,75 +365,144 @@ export const TrainingPlayer = () => {
 
   // Focus Mode Event Listeners
   useEffect(() => {
-    if (!quizStarted || quizSubmitted) return;
+    if (!quizStarted || quizSubmitted || !quizData?._id) return;
 
-    const reportViolation = async (type) => {
+    isFocusLostRef.current = false;
+    wasInFullscreenRef.current = !!document.fullscreenElement;
+    pendingFocusEventsRef.current.clear();
+
+    const dispatchFocusAlert = (events) => {
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
+
+      // Determine human-readable, prioritized event type
+      let chosenType = 'Window lost focus';
+      if (events.has('tab_hidden')) {
+        chosenType = 'Left quiz tab';
+      } else if (events.has('fullscreen_exit')) {
+        chosenType = 'Exited fullscreen';
+      } else if (events.has('window_blur')) {
+        chosenType = 'Window lost focus';
+      } else {
+        return; // Nothing to report (e.g. Esc pressed alone without leaving screen)
+      }
+
+      // Check client cooldown (4 seconds)
       const now = Date.now();
-      if (lastViolationReportType.current === type && now - lastViolationReportTime.current < 5000) return;
+      if (now - lastViolationReportTime.current < 4000) {
+        return;
+      }
       lastViolationReportTime.current = now;
-      lastViolationReportType.current = type;
-      try {
-        await reportQuizSecurityEvent(quizData._id, { eventType: type });
-      } catch (err) {
-        console.error('Failed to report violation', err);
+      lastViolationReportType.current = chosenType;
+      isFocusLostRef.current = true;
+
+      const warningMsg = `Quiz Focus Alert: You left the active quiz screen (${chosenType}). Please return to continue.`;
+      setQuizPaused(true);
+      setViolationWarning(warningMsg);
+      addToast('warning', warningMsg);
+
+      reportQuizSecurityEvent(quizData._id, {
+        attemptId: activeQuizAttemptIdRef.current,
+        eventType: chosenType,
+        timestamp: new Date().toISOString()
+      }).catch(err => {
+        console.warn('Failed to send quiz focus alert to server:', err);
+      });
+    };
+
+    const queueFocusLossEvent = (eventType) => {
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
+      if (isFocusLostRef.current) return;
+
+      pendingFocusEventsRef.current.add(eventType);
+
+      if (!focusLossBatchTimerRef.current) {
+        focusLossBatchTimerRef.current = setTimeout(() => {
+          focusLossBatchTimerRef.current = null;
+          const events = new Set(pendingFocusEventsRef.current);
+          pendingFocusEventsRef.current.clear();
+          dispatchFocusAlert(events);
+        }, 200);
       }
     };
 
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        const msg = 'Quiz Paused — Please return to Focus Mode to continue.';
-        setQuizPaused(true);
-        setViolationWarning(msg);
-        addToast('warning', msg);
-        reportViolation('fullscreen_exit');
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
+      const isNowFullscreen = !!document.fullscreenElement;
+      if (wasInFullscreenRef.current && !isNowFullscreen) {
+        queueFocusLossEvent('fullscreen_exit');
       }
+      wasInFullscreenRef.current = isNowFullscreen;
     };
 
     const handleVisibilityChange = () => {
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
       if (document.hidden || document.visibilityState === 'hidden') {
-        const msg = 'Warning: You left the quiz. Please return to the quiz window and remain in Focus Mode.';
-        setQuizPaused(true);
-        setViolationWarning(msg);
-        addToast('warning', msg);
-        reportViolation('tab_switch');
+        queueFocusLossEvent('tab_hidden');
+      } else {
+        // Returned to active tab
+        isFocusLostRef.current = false;
       }
     };
 
     const handleBlur = () => {
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
+      queueFocusLossEvent('window_blur');
+    };
+
+    const handleFocus = () => {
       if (!document.hidden) {
-        const msg = 'Warning: You left the quiz. Please return to the quiz window and remain in Focus Mode.';
-        setQuizPaused(true);
-        setViolationWarning(msg);
-        addToast('warning', msg);
-        reportViolation('tab_switch');
+        isFocusLostRef.current = false;
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (isSubmittingQuizRef.current || !quizStarted || quizSubmitted) return;
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        // If in fullscreen mode, pressing Esc causes fullscreen exit
+        if (document.fullscreenElement) {
+          queueFocusLossEvent('fullscreen_exit');
+        }
+        // Note: Pressing Esc alone without exiting fullscreen or losing focus does NOT trigger a false alert
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('keydown', handleKeyDown);
+      if (focusLossBatchTimerRef.current) {
+        clearTimeout(focusLossBatchTimerRef.current);
+        focusLossBatchTimerRef.current = null;
+      }
+      pendingFocusEventsRef.current.clear();
     };
   }, [quizStarted, quizSubmitted, quizData]);
 
   const returnToFocusMode = async () => {
     try {
-      if (document.documentElement.requestFullscreen) {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
       }
       setQuizPaused(false);
       setViolationWarning('');
       lastViolationReportType.current = null;
+      isFocusLostRef.current = false;
+      wasInFullscreenRef.current = !!document.fullscreenElement;
       addToast('info', 'Resumed Focus Mode.');
     } catch (err) {
       console.warn('Fullscreen request failed:', err);
       setQuizPaused(false);
       setViolationWarning('');
       lastViolationReportType.current = null;
+      isFocusLostRef.current = false;
     }
   };
 
@@ -407,13 +511,15 @@ export const TrainingPlayer = () => {
     if (quizStarted && !quizSubmitted && quizTimeRemaining !== null && !quizPaused) {
       if (quizTimeRemaining <= 0) {
         clearInterval(quizTimerRef.current);
-        submitQuizAnswers(true); // Auto-submit when time expires
+        if (!hasAutoSubmittedRef.current && !isSubmittingQuizRef.current) {
+          hasAutoSubmittedRef.current = true;
+          submitQuizAnswers(true); // Auto-submit once when time expires
+        }
       } else {
         quizTimerRef.current = setInterval(() => {
           setQuizTimeRemaining(prev => {
             if (prev <= 1) {
               clearInterval(quizTimerRef.current);
-              submitQuizAnswers(true);
               return 0;
             }
             return prev - 1;
@@ -443,8 +549,12 @@ export const TrainingPlayer = () => {
       setQuizTimeRemaining(timeLimitSecs);
       setQuizStarted(true);
       setQuizPaused(false);
+      isFocusLostRef.current = false;
+      wasInFullscreenRef.current = !!document.fullscreenElement;
       setViolationWarning('');
       setQuizSubmitted(false);
+      isSubmittingQuizRef.current = false;
+      hasAutoSubmittedRef.current = false;
       setSelectedAnswers({});
       setCurrentQuestionIdx(0);
       addToast('success', 'Quiz timer started! Good luck.');
@@ -511,9 +621,9 @@ export const TrainingPlayer = () => {
       fetchWorkspace(true);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to submit quiz');
+      isSubmittingQuizRef.current = false;
     } finally {
       setSubmittingQuiz(false);
-      isSubmittingQuizRef.current = false;
     }
   };
 
@@ -751,9 +861,24 @@ export const TrainingPlayer = () => {
   if (loading || !data) return <LoadingSpinner text="Initializing training workspace..." />;
 
   const { assignment, progress } = data;
-  const training = assignment.trainingId;
+  const training = assignment.trainingId || assignment.training || {};
   const allItems = extractSyllabusItems(data);
   const allCourseResources = extractAllCourseResources(data);
+
+  // Extract training benefits entered during course creation
+  const rawBenefits = training.benefits;
+  const benefits = Array.isArray(rawBenefits)
+    ? rawBenefits.map(b => (typeof b === 'string' ? b.trim() : String(b || ''))).filter(Boolean)
+    : (typeof rawBenefits === 'string' && rawBenefits.trim()
+        ? (() => {
+            try {
+              const parsed = JSON.parse(rawBenefits);
+              return Array.isArray(parsed) ? parsed.map(b => String(b).trim()).filter(Boolean) : [rawBenefits.trim()];
+            } catch (e) {
+              return [rawBenefits.trim()];
+            }
+          })()
+        : []);
 
   const currentIdx = allItems.findIndex(i => activeItem && i.id === activeItem.id && i.type === activeItem.type);
   const activeStatus = activeItem ? getItemStatus(activeItem) : { isCompleted: false, isLocked: false };
@@ -1004,10 +1129,45 @@ export const TrainingPlayer = () => {
                 </div>
               ) : null}
 
+              {/* WHAT YOU'LL GAIN FROM THIS TRAINING */}
+              {benefits.length > 0 && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 space-y-3">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-1.5 rounded-xl bg-emerald-100/80 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 font-heading tracking-tight">
+                        What You'll Gain From This Training
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Key skills and competencies you will develop in this course
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    {benefits.map((benefit, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100/80 dark:border-emerald-900/40 shadow-xs flex items-start space-x-2.5 transition-colors hover:border-emerald-300 dark:hover:border-emerald-700"
+                      >
+                        <div className="w-5 h-5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed font-medium">
+                          {benefit}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* LESSON NOTES / TEXT CONTENT */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <h4 className="font-bold text-xs text-slate-700">Lesson Description</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+                <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300">Lesson Description</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                   {activeItem.description || 'Watch the video lesson and complete the interactive materials.'}
                 </p>
               </div>
@@ -1172,14 +1332,14 @@ export const TrainingPlayer = () => {
                 </div>
               ) : (
                 /* ACTIVE QUIZ QUESTIONNAIRE */
-                <div className={quizStarted && !quizSubmitted ? "fixed inset-0 z-[9999] bg-slate-50 flex flex-col" : "space-y-6"}>
+                <div className={quizStarted && !quizSubmitted ? "fixed inset-0 z-[9999] bg-slate-50 dark:bg-slate-950 flex flex-col" : "space-y-6"}>
                   {quizStarted && !quizSubmitted && quizPaused ? (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white animate-fade-in">
-                      <div className="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center border border-rose-200 mb-6 shadow-sm">
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white dark:bg-slate-900 animate-fade-in">
+                      <div className="w-24 h-24 bg-rose-50 dark:bg-rose-950/50 rounded-full flex items-center justify-center border border-rose-200 dark:border-rose-800 mb-6 shadow-sm">
                         <AlertTriangle className="w-12 h-12 text-rose-500" />
                       </div>
-                      <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tight">Quiz Paused</h2>
-                      <p className="text-lg text-rose-700 font-bold max-w-lg text-center leading-relaxed mb-8">
+                      <h2 className="text-4xl font-black text-slate-900 dark:text-slate-100 mb-4 tracking-tight">Quiz Paused</h2>
+                      <p className="text-lg text-rose-700 dark:text-rose-400 font-bold max-w-lg text-center leading-relaxed mb-8">
                         {violationWarning}
                       </p>
                       <button
@@ -1192,23 +1352,23 @@ export const TrainingPlayer = () => {
                   ) : quizStarted && !quizSubmitted ? (
                     <div className="flex flex-col h-full w-full max-w-7xl mx-auto p-4 sm:p-6 gap-6">
                       {/* FOCUS MODE HEADER */}
-                      <div className="flex flex-col md:flex-row items-center justify-between bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 gap-4">
+                      <div className="flex flex-col md:flex-row items-center justify-between bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 gap-4">
                         <div className="flex items-center space-x-4 flex-1">
-                          <div className="hidden sm:flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100">
-                            <Lock className="w-6 h-6 text-emerald-600" />
+                          <div className="hidden sm:flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-800/80">
+                            <Lock className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
                           </div>
                           <div>
                             <div className="flex items-center space-x-2">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 uppercase tracking-wider">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 uppercase tracking-wider">
                                 Focus Mode Active
                               </span>
                             </div>
-                            <h2 className="text-xl font-black text-slate-900 mt-1">{quizData.title}</h2>
+                            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">{quizData.title}</h2>
                           </div>
                         </div>
 
                         {quizTimeRemaining !== null && (
-                          <div className="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-mono text-lg font-bold shadow-md flex items-center">
+                          <div className="px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-mono text-lg font-bold shadow-md flex items-center border border-transparent dark:border-slate-700">
                             <Clock className="w-5 h-5 mr-2 text-emerald-400" />
                             {formatVideoTime(quizTimeRemaining)}
                           </div>
@@ -1229,22 +1389,22 @@ export const TrainingPlayer = () => {
                       {/* TWO COLUMN LAYOUT */}
                       <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
                         {/* LEFT COLUMN: QUESTION CARD */}
-                        <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 overflow-y-auto flex flex-col">
+                        <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 sm:p-8 overflow-y-auto flex flex-col">
                           {quizData.questions && quizData.questions.length > 0 && (() => {
                             const currentQ = quizData.questions[currentQuestionIdx];
                             const qType = currentQ.questionType || (currentQ.options && currentQ.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
 
                             return (
                               <div className="flex flex-col h-full">
-                                <div className="flex justify-between items-center text-sm font-bold text-slate-700 pb-4 border-b border-slate-100 mb-6">
+                                <div className="flex justify-between items-center text-sm font-bold text-slate-700 dark:text-slate-300 pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
                                   <span>Question {currentQuestionIdx + 1} of {quizData.questions.length}</span>
-                                  <span className="px-3 py-1 rounded bg-slate-100 text-[11px] uppercase tracking-wider text-slate-600 border border-slate-200">
+                                  <span className="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                                     {qType === 'TRUE_FALSE' ? 'True / False' : qType === 'FILL_IN_BLANK' ? 'Fill in the Blank' : 'Multiple Choice'}
                                   </span>
                                 </div>
 
                                 <div className="flex-1 space-y-8">
-                                  <h3 className="font-bold text-slate-900 text-xl leading-relaxed">
+                                  <h3 className="font-bold text-slate-900 dark:text-slate-100 text-xl leading-relaxed">
                                     {currentQ.questionText}
                                   </h3>
 
@@ -1255,11 +1415,11 @@ export const TrainingPlayer = () => {
                                         <label
                                           key={optIdx}
                                           className={`flex items-center p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${selectedAnswers[currentQuestionIdx] === optIdx
-                                              ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-sm'
-                                              : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50'
+                                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-sm'
+                                              : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
                                             }`}
                                         >
-                                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 ${selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300'
+                                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 ${selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-600'
                                             }`}>
                                             {selectedAnswers[currentQuestionIdx] === optIdx && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />}
                                           </div>
@@ -1282,8 +1442,8 @@ export const TrainingPlayer = () => {
                                         type="button"
                                         onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 0 })}
                                         className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 0
-                                            ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-sm'
-                                            : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50'
+                                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 shadow-sm'
+                                            : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
                                           }`}
                                       >
                                         <span className="text-2xl">✓</span>
@@ -1293,8 +1453,8 @@ export const TrainingPlayer = () => {
                                         type="button"
                                         onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 1 })}
                                         className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 1
-                                            ? 'bg-rose-50 border-rose-500 text-rose-900 shadow-sm'
-                                            : 'bg-white border-slate-200 text-slate-700 hover:border-rose-300 hover:bg-slate-50'
+                                            ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-300 shadow-sm'
+                                            : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-300 dark:hover:border-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800'
                                           }`}
                                       >
                                         <span className="text-2xl">✕</span>
@@ -1310,18 +1470,18 @@ export const TrainingPlayer = () => {
                                         value={selectedAnswers[currentQuestionIdx] !== undefined && selectedAnswers[currentQuestionIdx] !== null ? selectedAnswers[currentQuestionIdx] : ''}
                                         onChange={(e) => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: e.target.value })}
                                         placeholder="Type your answer here..."
-                                        className="w-full px-5 py-4 rounded-xl bg-slate-50 border-2 border-slate-200 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:bg-white transition-colors"
+                                        className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
                                       />
                                     </div>
                                   )}
                                 </div>
 
-                                <div className="flex items-center justify-between pt-6 border-t border-slate-100 mt-6">
+                                <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-slate-800 mt-6">
                                   <div className="flex gap-3">
                                     <button
                                       onClick={() => setCurrentQuestionIdx(prev => Math.max(0, prev - 1))}
                                       disabled={currentQuestionIdx === 0}
-                                      className="px-6 py-3 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                      className="px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                                     >
                                       ← Previous
                                     </button>
@@ -1334,8 +1494,8 @@ export const TrainingPlayer = () => {
                                         }));
                                       }}
                                       className={`px-4 py-3 rounded-xl border text-sm font-bold cursor-pointer transition-colors flex items-center ${markedForReview[currentQuestionIdx]
-                                          ? 'bg-amber-50 border-amber-400 text-amber-800 hover:bg-amber-100'
-                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                          ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                                         }`}
                                     >
                                       <span className="mr-2">🚩</span>
@@ -1345,7 +1505,7 @@ export const TrainingPlayer = () => {
                                   <button
                                     onClick={() => setCurrentQuestionIdx(prev => Math.min(quizData.questions.length - 1, prev + 1))}
                                     disabled={currentQuestionIdx === quizData.questions.length - 1}
-                                    className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-md"
+                                    className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-md"
                                   >
                                     Next →
                                   </button>
@@ -1356,8 +1516,8 @@ export const TrainingPlayer = () => {
                         </div>
 
                         {/* RIGHT COLUMN: QUESTION NAVIGATOR */}
-                        <div className="w-full lg:w-80 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col h-full overflow-y-auto">
-                          <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider mb-6 pb-4 border-b border-slate-100">
+                        <div className="w-full lg:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 flex flex-col h-full overflow-y-auto">
+                          <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
                             Question Navigator
                           </h3>
 
@@ -1372,12 +1532,12 @@ export const TrainingPlayer = () => {
                                   key={idx}
                                   onClick={() => setCurrentQuestionIdx(idx)}
                                   className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${isCurrent
-                                      ? 'border-slate-900 bg-slate-900 text-white shadow-md transform scale-110'
+                                      ? 'border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600 text-white shadow-md transform scale-110'
                                       : isReview
-                                        ? 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                        ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
                                         : isAnswered
-                                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                          : 'border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50'
+                                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'
                                     }`}
                                 >
                                   {idx + 1}
@@ -1386,21 +1546,21 @@ export const TrainingPlayer = () => {
                             })}
                           </div>
 
-                          <div className="mt-auto space-y-3 pt-6 border-t border-slate-100 text-xs font-semibold text-slate-600">
+                          <div className="mt-auto space-y-3 pt-6 border-t border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300">
                             <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-emerald-500 bg-emerald-50"></div>
+                              <div className="w-4 h-4 rounded border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50"></div>
                               <span>Answered</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-slate-200 bg-white"></div>
+                              <div className="w-4 h-4 rounded border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"></div>
                               <span>Unanswered</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50 text-center leading-[14px]">🚩</div>
+                              <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-center leading-[14px]">🚩</div>
                               <span>Review</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-slate-900 bg-slate-900"></div>
+                              <div className="w-4 h-4 rounded border-2 border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600"></div>
                               <span>Current</span>
                             </div>
                           </div>

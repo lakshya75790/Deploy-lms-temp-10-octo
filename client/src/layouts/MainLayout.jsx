@@ -10,7 +10,7 @@ export const MainLayout = () => {
   const { isFocusMode } = useFocusMode();
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800 antialiased selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex font-sans text-slate-800 dark:text-slate-100 antialiased selection:bg-emerald-500 selection:text-white transition-colors duration-200">
       <ToastContainer />
 
       {/* 100vh Sidebar */}
@@ -19,12 +19,12 @@ export const MainLayout = () => {
       )}
 
       {/* Main Right Area: Navbar + Content */}
-      <div className={`flex-1 flex flex-col min-w-0 min-h-screen ${isFocusMode ? 'p-0 bg-white' : ''}`}>
+      <div className={`flex-1 flex flex-col min-w-0 min-h-screen ${isFocusMode ? 'p-0 bg-white dark:bg-slate-900' : ''}`}>
         {!isFocusMode && (
           <Navbar onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)} />
         )}
 
-        <main className={`flex-1 w-full max-w-7xl mx-auto ${isFocusMode ? 'max-w-none p-0' : 'p-4 sm:p-6 lg:p-8'}`}>
+        <main className={`flex-1 w-full max-w-7xl mx-auto min-w-0 ${isFocusMode ? 'max-w-none p-0' : 'p-3 xs:p-4 sm:p-6 lg:p-8'}`}>
           <Outlet />
         </main>
       </div>

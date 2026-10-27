@@ -191,8 +191,7 @@ const getAllOrganizations = async (req, res, next) => {
       by: ['organizationId'],
       where: {
         organizationId: { in: orgIds },
-        role: { in: ['Admin', 'Instructor', 'Employee'] },
-        status: 'active'
+        role: { in: ['Admin', 'Instructor', 'Employee'] }
       },
       _count: { id: true }
     }) : [];
@@ -291,8 +290,7 @@ const updateOrganization = async (req, res, next) => {
       const currentlyUsedLicenses = await prisma.user.count({
         where: {
           organizationId: id,
-          role: { in: ['Admin', 'Instructor', 'Employee'] },
-          status: 'active'
+          role: { in: ['Admin', 'Instructor', 'Employee'] }
         }
       });
 

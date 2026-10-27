@@ -1,39 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import { updateProfile, updateProfilePicture, resetProfilePicture, changePassword, getDepartments } from '../../services/api';
+import { updateProfile, updateProfilePicture, resetProfilePicture, changePassword } from '../../services/api';
 import {
   User,
   Mail,
-  Building2,
-  Briefcase,
   Upload,
   RefreshCw,
-  Trash2,
   KeyRound,
   Lock,
   Check,
   Eye,
   EyeOff,
-  UserCog,
-  ShieldCheck,
-  Sparkles
+  ShieldCheck
 } from 'lucide-react';
 import { validateImageFile } from '../../utils/fileValidation';
 
 export const AccountSettingsPage = () => {
   const { user, setUser } = useAuth();
   const { addToast } = useNotification();
+  const fileInputRef = useRef(null);
 
   // Profile Form State
   const [name, setName] = useState(user?.name || '');
-  const [departmentId, setDepartmentId] = useState(user?.departmentId?._id || user?.departmentId || '');
-  const [jobRole, setJobRole] = useState(user?.jobRole || '');
-  const [departments, setDepartments] = useState([]);
-  const [availableJobRoles, setAvailableJobRoles] = useState([]);
 
+  // Profile Picture Upload & Reset State
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [resetAvatarPending, setResetAvatarPending] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [uploadingPic, setUploadingPic] = useState(false);
 
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -44,55 +39,33 @@ export const AccountSettingsPage = () => {
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
 
+  // Synchronize state when user loads or updates
   useEffect(() => {
     if (user) {
       setName(user.name || '');
-      setDepartmentId(user.departmentId?._id || user.departmentId || '');
-      setJobRole(user.jobRole || '');
     }
   }, [user]);
 
+  // Clean up object URLs on unmount or preview replacement
   useEffect(() => {
-    if (user?.role === 'Employee') {
-      getDepartments()
-        .then((res) => {
-          const deps = res.data.data.departments || [];
-          setDepartments(deps);
-          if (departmentId) {
-            const selected = deps.find((d) => d._id === departmentId);
-            if (selected) setAvailableJobRoles(selected.jobRoles || []);
-          }
-        })
-        .catch(console.error);
-    }
-  }, [user, departmentId]);
-
-  const handleDeptChange = (e) => {
-    const dId = e.target.value;
-    setDepartmentId(dId);
-    setJobRole('');
-    const selected = departments.find((d) => d._id === dId);
-    setAvailableJobRoles(selected ? selected.jobRoles || [] : []);
-  };
-
-  const handleSaveProfile = async (e) => {
-    e.preventDefault();
-    setSavingProfile(true);
-    try {
-      const res = await updateProfile({ name, departmentId, jobRole });
-      if (res.data?.data?.user) {
-        setUser(res.data.data.user);
+    return () => {
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
       }
-      addToast('success', 'Profile details updated successfully!');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to update profile');
-    } finally {
-      setSavingProfile(false);
-    }
-  };
+    };
+  }, [previewUrl]);
 
-  const handlePicUpload = async (e) => {
-    const file = e.target.files[0];
+  // Avatar Display computation
+  const defaultDicebear = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name || user?.name || 'User')}`;
+  const currentDisplayAvatar = previewUrl
+    ? previewUrl
+    : resetAvatarPending
+      ? defaultDicebear
+      : (user?.profilePicture || defaultDicebear);
+
+  // Choose Photo Handler
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
     const validation = validateImageFile(file);
@@ -102,54 +75,128 @@ export const AccountSettingsPage = () => {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
 
-    setUploadingPic(true);
-    try {
-      const res = await updateProfilePicture(formData);
-      if (res.data?.data?.user) {
-        setUser(res.data.data.user);
+    setSelectedFile(file);
+    setResetAvatarPending(false);
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+    e.target.value = null;
+  };
+
+  // Reset Avatar Handler (clears un-saved file or queues reset to initial avatar)
+  const handleResetAvatar = () => {
+    // If a new photo is currently selected but not saved yet: revert selection
+    if (selectedFile || previewUrl) {
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
       }
-      addToast('success', 'Profile picture updated successfully!');
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setResetAvatarPending(false);
+      addToast('info', 'Pending photo selection cleared.');
+      return;
+    }
+
+    // If reset is already queued: toggle back
+    if (resetAvatarPending) {
+      setResetAvatarPending(false);
+      addToast('info', 'Restored previous profile photo.');
+      return;
+    }
+
+    // If user has a saved custom avatar in the DB: queue reset
+    if (user?.isCustomAvatar) {
+      setResetAvatarPending(true);
+      addToast('info', 'Avatar reset to default initial. Click "Save Profile Changes" to save.');
+      return;
+    }
+
+    addToast('info', 'Your avatar is already using the default initial avatar.');
+  };
+
+  // Save Profile Changes Handler
+  const handleSaveProfile = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const isNameChanged = name.trim() !== (user?.name || '');
+    const hasPhotoToUpload = !!selectedFile;
+    const hasResetPending = resetAvatarPending;
+
+    if (!isNameChanged && !hasPhotoToUpload && !hasResetPending) {
+      addToast('info', 'No changes to save.');
+      return;
+    }
+
+    if (!name.trim()) {
+      addToast('error', 'Full name cannot be empty.');
+      return;
+    }
+
+    setSavingProfile(true);
+    let latestUser = user;
+
+    try {
+      // 1. Photo upload if a new file was chosen
+      if (hasPhotoToUpload) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        const picRes = await updateProfilePicture(formData);
+        if (picRes?.data?.data?.user) {
+          latestUser = picRes.data.data.user;
+        }
+      } else if (hasResetPending) {
+        // 2. Reset picture to default if requested
+        const resetRes = await resetProfilePicture();
+        if (resetRes?.data?.data?.user) {
+          latestUser = resetRes.data.data.user;
+        }
+      }
+
+      // 3. Update text details (Name)
+      if (isNameChanged) {
+        const profileData = { name: name.trim() };
+        const profileRes = await updateProfile(profileData);
+        if (profileRes?.data?.data?.user) {
+          latestUser = profileRes.data.data.user;
+        }
+      }
+
+      setUser(latestUser);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setResetAvatarPending(false);
+      addToast('success', 'Profile details updated successfully!');
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to upload profile picture');
+      addToast('error', err.response?.data?.message || 'Failed to update profile details');
     } finally {
-      setUploadingPic(false);
-      e.target.value = null;
+      setSavingProfile(false);
     }
   };
 
-  const handleResetPic = async () => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    setUploadingPic(true);
-    try {
-      const res = await resetProfilePicture();
-      if (res.data?.data?.user) {
-        setUser(res.data.data.user);
-      }
-      addToast('success', 'File deleted successfully.');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to reset profile picture');
-    } finally {
-      setUploadingPic(false);
-    }
-  };
-
+  // Update Password Handler
   const handlePasswordSubmit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      addToast('error', 'Please fill in all password fields.');
+      return;
+    }
+
     if (currentPassword === newPassword) {
       addToast('error', 'New password must be different from your current password.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      addToast('error', 'New passwords do not match');
+      addToast('error', 'New passwords do not match.');
       return;
     }
 
     if (newPassword.length < 6) {
-      addToast('error', 'New password must be at least 6 characters long');
+      addToast('error', 'New password must be at least 6 characters long.');
       return;
     }
 
@@ -164,276 +211,249 @@ export const AccountSettingsPage = () => {
       setShowNewPass(false);
       setShowConfirmPass(false);
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to change password');
+      addToast('error', err.response?.data?.message || 'Failed to update password.');
     } finally {
       setSavingPassword(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-16 animate-fade-in">
-      {/* SECTION 1: Top Banner Header */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shadow-xs shrink-0">
-            <UserCog className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">
-              Account Settings
-            </h1>
-            <p className="text-xs text-slate-500">
-              Manage your personal details, profile picture avatar, and security authentication credentials.
-            </p>
-          </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-fade-in">
+      {/* Page Title & Subtitle Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-[26px] font-extrabold text-slate-900 tracking-tight font-heading">
+            Account Settings
+          </h1>
+          <p className="text-xs sm:text-[13px] text-slate-500 mt-0.5">
+            Manage your personal profile details, photo avatar, and security authentication credentials.
+          </p>
         </div>
 
-        <div className="flex items-center space-x-2 shrink-0">
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            {user?.role === 'Admin' ? 'Org Admin' : user?.role}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {user?.role === 'Admin' ? 'Organization Admin' : user?.role || 'User'}
           </span>
           {user?.organizationId?.name && (
-            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
               {user.organizationId.name}
             </span>
           )}
         </div>
       </div>
 
-      {/* SECTION 2: Personal Profile Details Card */}
-      <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
-        <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
-          <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
-            <User className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-base text-slate-900 font-heading">Personal Profile Details</h3>
-            <p className="text-xs text-slate-500">Update your name, profile photo, and work contact info</p>
-          </div>
+      {/* CARD 1: Personal Profile Details */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 xs:p-6 sm:p-7 md:p-8 space-y-6">
+        <div className="border-b border-slate-100 pb-4">
+          <h2 className="text-[18px] font-bold text-slate-900 font-heading">Personal Profile Details</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Update your personal photo, full name, and registered email address.</p>
         </div>
 
-        {/* Profile Picture Upload & Reset Area */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4.5 rounded-2xl bg-slate-50 border border-slate-200">
-          <img
-            src={user?.profilePicture || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.name}`}
-            alt={user?.name}
-            className="w-20 h-20 rounded-2xl object-cover border-2 border-emerald-200 bg-white shadow-xs shrink-0"
-          />
-          <div className="space-y-2 flex-1">
-            <h4 className="font-bold text-sm text-slate-900">{user?.name}</h4>
-            <p className="text-xs text-slate-500">
-              Upload a custom profile photo (PNG, JPG, SVG) or reset to your default initial avatar.
-            </p>
-            <div className="flex flex-wrap gap-2.5 pt-1">
-              <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-xs">
-                <Upload className="w-4 h-4 mr-1.5" />
-                {uploadingPic ? 'Uploading...' : 'Choose Photo'}
-                <input type="file" accept="image/*" onChange={handlePicUpload} className="hidden" disabled={uploadingPic} />
-              </label>
-
-              {user?.isCustomAvatar && (
-                <button
-                  type="button"
-                  onClick={handleResetPic}
-                  disabled={uploadingPic}
-                  className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" />
-                  Delete Image
-                </button>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+          {/* Left Column: Avatar, Identity & Photo Action Buttons */}
+          <div className="md:col-span-4 flex flex-col items-center sm:items-start text-center sm:text-left space-y-3.5">
+            <div className="relative">
+              <img
+                src={currentDisplayAvatar}
+                alt={user?.name || 'Profile Avatar'}
+                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-slate-100 shadow-xs bg-slate-50 ring-2 ring-emerald-500/20"
+              />
+              {(selectedFile || resetAvatarPending) && (
+                <span className="absolute bottom-0 right-0 px-2 py-0.5 text-[9px] font-bold uppercase bg-amber-500 text-white rounded-full shadow-xs border-2 border-white">
+                  Pending
+                </span>
               )}
             </div>
+
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">{name || user?.name || 'User'}</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {user?.role === 'Admin' ? 'Organization Administrator' : user?.role || 'Member'}
+                {user?.organizationId?.name ? ` • ${user.organizationId.name}` : ''}
+              </p>
+            </div>
+
+            {/* Choose Photo & Reset Buttons */}
+            <div className="flex items-center gap-2 pt-1 w-full sm:w-auto justify-center sm:justify-start">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Choose Photo
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              <button
+                type="button"
+                onClick={handleResetAvatar}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors inline-flex items-center cursor-pointer"
+                title="Reset avatar to default initial"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                Reset
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Supported formats: JPG, PNG, SVG (max 5MB).
+            </p>
+          </div>
+
+          {/* Right Column: Name & Email Fields */}
+          <div className="md:col-span-8 space-y-4">
+            <div>
+              <label className="block text-xs sm:text-[13px] font-semibold text-slate-700 mb-1.5">
+                Full Name <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  placeholder="Enter your full name"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs sm:text-[13px] font-semibold text-slate-700 mb-1.5">
+                Work Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="email"
+                  value={user?.email || ''}
+                  disabled
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm text-slate-500 cursor-not-allowed select-none"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Profile Form (Vertically Stacked Fields) */}
-        <form onSubmit={handleSaveProfile} className="space-y-5 max-w-2xl">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Full Name *
-            </label>
-            <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                placeholder="Enter your full name"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Work Email Address
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-              <input
-                type="email"
-                value={user?.email || ''}
-                disabled
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-500 text-sm cursor-not-allowed"
-              />
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">Work email address is managed by platform administration.</p>
-          </div>
-
-          {user?.role === 'Employee' && (
-            <div className="space-y-4 pt-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Group</label>
-                <div className="relative">
-                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <select
-                    value={departmentId}
-                    onChange={handleDeptChange}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
-                  >
-                    <option value="">Select Group</option>
-                    {departments.map((d) => (
-                      <option key={d._id} value={d._id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Role</label>
-                <div className="relative">
-                  <Briefcase className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <select
-                    value={jobRole}
-                    onChange={(e) => setJobRole(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed cursor-pointer"
-                    disabled={!departmentId}
-                  >
-                    <option value="">Select Role</option>
-                    {availableJobRoles.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={savingProfile}
-              className="py-2.5 px-6 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer disabled:opacity-50"
-            >
-              <Check className="w-4 h-4 mr-2" />
-              {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
-            </button>
-          </div>
-        </form>
+        {/* Save Profile Changes Button Aligned to Bottom-Right */}
+        <div className="pt-4 border-t border-slate-100 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSaveProfile}
+            disabled={savingProfile}
+            className="px-5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 inline-flex items-center"
+          >
+            <Check className="w-4 h-4 mr-2" />
+            {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+          </button>
+        </div>
       </div>
 
-      {/* SECTION 3: Security & Password Card (STACKED DIRECTLY BELOW) */}
-      <div className="p-6 sm:p-7 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
-        <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
-          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-600 border border-teal-100">
-            <KeyRound className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-base text-slate-900 font-heading">Security & Password</h3>
-            <p className="text-xs text-slate-500">Update your account login password to maintain platform security</p>
-          </div>
+      {/* CARD 2: Security & Password */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 sm:p-7 md:p-8 space-y-6">
+        <div className="border-b border-slate-100 pb-4">
+          <h2 className="text-[18px] font-bold text-slate-900 font-heading">Security & Password</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Update your account login password to maintain platform security.</p>
         </div>
 
-        {/* Password Form (Vertically Stacked Fields) */}
-        <form onSubmit={handlePasswordSubmit} className="space-y-5 max-w-2xl">
+        {/* Three Password Fields Arranged Horizontally on Desktop */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Current Password */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Current Password *
+            <label className="block text-xs sm:text-[13px] font-semibold text-slate-700 mb-1.5">
+              Current Password <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type={showCurrentPass ? 'text' : 'password'}
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                placeholder="Enter current password"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                placeholder="Current password"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowCurrentPass(!showCurrentPass)}
-                className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showCurrentPass ? 'Hide current password' : 'Show current password'}
               >
                 {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
+          {/* New Password */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              New Password *
+            <label className="block text-xs sm:text-[13px] font-semibold text-slate-700 mb-1.5">
+              New Password <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type={showNewPass ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                required
-                placeholder="Enter new password (min. 6 characters)"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                placeholder="Min. 6 characters"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowNewPass(!showNewPass)}
-                className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showNewPass ? 'Hide new password' : 'Show new password'}
               >
                 {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
+          {/* Confirm New Password */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Confirm New Password *
+            <label className="block text-xs sm:text-[13px] font-semibold text-slate-700 mb-1.5">
+              Confirm New Password <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
-              <Check className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <Check className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type={showConfirmPass ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                placeholder="Re-enter new password to confirm"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                placeholder="Re-enter password"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPass(!showConfirmPass)}
-                className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showConfirmPass ? 'Hide confirmed password' : 'Show confirmed password'}
               >
                 {showConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
+        </div>
 
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={savingPassword}
-              className="py-2.5 px-6 rounded-xl text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer disabled:opacity-50"
-            >
-              <ShieldCheck className="w-4 h-4 mr-2" />
-              {savingPassword ? 'Updating Password...' : 'Update Password'}
-            </button>
-          </div>
-        </form>
+        {/* Update Password Button Aligned to Bottom-Right */}
+        <div className="pt-4 border-t border-slate-100 flex justify-end">
+          <button
+            type="button"
+            onClick={handlePasswordSubmit}
+            disabled={savingPassword}
+            className="px-5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 inline-flex items-center"
+          >
+            <ShieldCheck className="w-4 h-4 mr-2" />
+            {savingPassword ? 'Updating Password...' : 'Update Password'}
+          </button>
+        </div>
       </div>
     </div>
   );

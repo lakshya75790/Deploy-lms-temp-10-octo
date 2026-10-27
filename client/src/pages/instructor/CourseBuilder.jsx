@@ -74,9 +74,7 @@ export const CourseBuilder = () => {
   const [lectureVideoDuration, setLectureVideoDuration] = useState(0);
   const [uploadingVideo, setUploadingVideo] = useState(false);
 
-  // STEP 3 — QUIZ / ASSESSMENT (OPTIONAL)
-  const [quizSectionIdx, setQuizSectionIdx] = useState(0);
-  const [addQuizEnabled, setAddQuizEnabled] = useState(false);
+  // Section Quiz Modal state
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizTitle, setQuizTitle] = useState('');
   const [quizDurationMinutes, setQuizDurationMinutes] = useState(15);
@@ -84,12 +82,14 @@ export const CourseBuilder = () => {
   const [quizQuestions, setQuizQuestions] = useState([
     {
       questionText: '',
+      questionType: 'MCQ',
       options: ['', '', '', ''],
-      correctAnswerIndex: 0
+      correctAnswerIndex: 0,
+      correctAnswerText: ''
     }
   ]);
 
-  // STEP 4 — ASSIGNMENT & RESOURCES (OPTIONAL)
+  // STEP 3 — ASSIGNMENT & RESOURCES (OPTIONAL)
   const [addAssignmentEnabled, setAddAssignmentEnabled] = useState(false);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const [assignmentTitle, setAssignmentTitle] = useState('');
@@ -118,29 +118,39 @@ export const CourseBuilder = () => {
             setThumbnailPublicId(t.thumbnailPublicId || '');
             setBenefits(t.benefits || []);
 
-            // Populate Sections & Lectures
+            // Populate Sections, Lectures & Section Quizzes
             if (t.sections && t.sections.length > 0) {
-              const loadedSections = t.sections.map((sec, sIdx) => {
-                const secQuiz = sec.subSections?.find(sub => sub.quizId)?.quizId;
-                if (secQuiz && !addQuizEnabled) {
-                  setAddQuizEnabled(true);
-                  setQuizSectionIdx(sIdx);
-                  setQuizTitle(secQuiz.title || '');
-                  setQuizDurationMinutes(secQuiz.timeLimitMinutes || 15);
-                  setQuizPassingScorePercent(secQuiz.passingScorePercent || 70);
-                  if (secQuiz.questions && secQuiz.questions.length > 0) {
-                    setQuizQuestions(secQuiz.questions.map(q => ({
-                      questionText: q.questionText || '',
-                      options: q.options || ['', '', '', ''],
-                      correctAnswerIndex: q.correctAnswerIndex || 0
-                    })));
-                  }
+              const loadedSections = t.sections.map((sec) => {
+                const secQuiz = sec.quiz ||
+                  (sec.quizzes && sec.quizzes[0]) ||
+                  t.quizzes?.find(q => (q.sectionId && (q.sectionId === sec._id || q.sectionId === sec.id))) ||
+                  sec.subSections?.find(sub => sub.quizId)?.quizId || null;
+
+                let mappedQuiz = null;
+                if (secQuiz) {
+                  mappedQuiz = {
+                    id: secQuiz._id || secQuiz.id,
+                    title: secQuiz.title || `${sec.title || 'Section'} Quiz`,
+                    timeLimitMinutes: secQuiz.timeLimitMinutes || 15,
+                    passingScorePercent: secQuiz.passingScorePercent || 70,
+                    questions: Array.isArray(secQuiz.questions) && secQuiz.questions.length > 0
+                      ? secQuiz.questions.map(q => ({
+                          id: q._id || q.id,
+                          questionText: q.questionText || '',
+                          questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
+                          options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
+                          correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
+                          correctAnswerText: q.correctAnswerText || ''
+                        }))
+                      : []
+                  };
                 }
 
                 return {
                   id: sec._id || sec.id,
                   title: sec.title || '',
                   description: sec.description || '',
+                  quiz: mappedQuiz,
                   lectures: sec.subSections ? sec.subSections.map(sub => ({
                     id: sub._id || sub.id,
                     title: sub.title || '',
@@ -151,6 +161,28 @@ export const CourseBuilder = () => {
                   })) : []
                 };
               });
+
+              // Backward compatibility fallback: if course has an unmapped quiz, attach to first section
+              if (t.quizzes && t.quizzes.length > 0 && !loadedSections.some(s => s.quiz)) {
+                const legacyQuiz = t.quizzes[0];
+                loadedSections[0].quiz = {
+                  id: legacyQuiz._id || legacyQuiz.id,
+                  title: legacyQuiz.title || `${loadedSections[0].title} Quiz`,
+                  timeLimitMinutes: legacyQuiz.timeLimitMinutes || 15,
+                  passingScorePercent: legacyQuiz.passingScorePercent || 70,
+                  questions: Array.isArray(legacyQuiz.questions)
+                    ? legacyQuiz.questions.map(q => ({
+                        id: q._id || q.id,
+                        questionText: q.questionText || '',
+                        questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
+                        options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
+                        correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
+                        correctAnswerText: q.correctAnswerText || ''
+                      }))
+                    : []
+                };
+              }
+
               setSections(loadedSections);
             }
 
@@ -394,11 +426,115 @@ export const CourseBuilder = () => {
     addToast('success', 'Lecture deleted');
   };
 
-  // QUIZ QUESTION HANDLERS
+  // SECTION QUIZ HANDLERS
+  const openAddQuizModal = (sIdx) => {
+    setTargetSectionIdx(sIdx);
+    const sec = sections[sIdx];
+    setQuizTitle(sec ? `${sec.title} Quiz` : 'Section Quiz');
+    setQuizDurationMinutes(15);
+    setQuizPassingScorePercent(70);
+    setQuizQuestions([
+      {
+        questionText: '',
+        questionType: 'MCQ',
+        options: ['', '', '', ''],
+        correctAnswerIndex: 0,
+        correctAnswerText: ''
+      }
+    ]);
+    setShowQuizModal(true);
+  };
+
+  const openEditQuizModal = (sIdx) => {
+    setTargetSectionIdx(sIdx);
+    const sec = sections[sIdx];
+    const quiz = sec?.quiz;
+    if (quiz) {
+      setQuizTitle(quiz.title || `${sec.title} Quiz`);
+      setQuizDurationMinutes(quiz.timeLimitMinutes || 15);
+      setQuizPassingScorePercent(quiz.passingScorePercent || 70);
+      if (quiz.questions && quiz.questions.length > 0) {
+        setQuizQuestions(quiz.questions.map(q => ({
+          id: q.id || q._id,
+          questionText: q.questionText || '',
+          questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
+          options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
+          correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
+          correctAnswerText: q.correctAnswerText || ''
+        })));
+      } else {
+        setQuizQuestions([
+          {
+            questionText: '',
+            questionType: 'MCQ',
+            options: ['', '', '', ''],
+            correctAnswerIndex: 0,
+            correctAnswerText: ''
+          }
+        ]);
+      }
+    } else {
+      openAddQuizModal(sIdx);
+      return;
+    }
+    setShowQuizModal(true);
+  };
+
+  const handleSaveSectionQuiz = (e) => {
+    e.preventDefault();
+    if (!quizTitle.trim()) {
+      addToast('error', 'Quiz Title is required');
+      return;
+    }
+
+    const validQuestions = quizQuestions.filter(q => q.questionText && q.questionText.trim());
+    if (validQuestions.length === 0) {
+      addToast('error', 'Please provide at least one question with question text');
+      return;
+    }
+
+    for (let i = 0; i < validQuestions.length; i++) {
+      const q = validQuestions[i];
+      if (q.questionType === 'MCQ') {
+        const filledOpts = (q.options || []).filter(o => o && o.trim());
+        if (filledOpts.length < 2) {
+          addToast('error', `Question #${i + 1}: Multiple choice questions must have at least 2 options`);
+          return;
+        }
+      }
+    }
+
+    const updated = [...sections];
+    const existingSecQuiz = updated[targetSectionIdx]?.quiz;
+    updated[targetSectionIdx].quiz = {
+      ...(existingSecQuiz || {}),
+      title: quizTitle.trim(),
+      timeLimitMinutes: Number(quizDurationMinutes) || 15,
+      passingScorePercent: Number(quizPassingScorePercent) || 70,
+      questions: validQuestions.map((q, qIdx) => ({
+        ...q,
+        order: qIdx + 1
+      }))
+    };
+
+    setSections(updated);
+    setShowQuizModal(false);
+    addToast('success', `Quiz configured for ${updated[targetSectionIdx].title}`);
+  };
+
+  const handleRemoveSectionQuiz = (sIdx) => {
+    if (!window.confirm(`Are you sure you want to remove the quiz from ${sections[sIdx].title}?`)) return;
+    const updated = [...sections];
+    updated[sIdx].quiz = null;
+    setSections(updated);
+    addToast('success', 'Quiz removed from section');
+  };
+
+  // QUIZ QUESTION BUILDER HANDLERS
   const handleAddQuestion = () => {
     setQuizQuestions([
       ...quizQuestions,
-      { questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 }
+      { questionText: '', questionType: 'MCQ', options: ['', '', '', ''], correctAnswerIndex: 0, correctAnswerText: '' }
     ]);
   };
 
@@ -491,8 +627,6 @@ export const CourseBuilder = () => {
       setCurrentStep(3);
     } else if (currentStep === 3) {
       setCurrentStep(4);
-    } else if (currentStep === 4) {
-      setCurrentStep(5);
     }
   };
 
@@ -519,42 +653,49 @@ export const CourseBuilder = () => {
     setSubmitting(true);
 
     try {
-      // Prepare Quiz payload if enabled
-      let preparedSections = sections.map((sec, idx) => {
+      // Prepare sections with section-wise quizzes
+      let preparedSections = sections.map((sec) => {
         let secQuiz = null;
-        if (addQuizEnabled && idx === quizSectionIdx && quizQuestions.length > 0) {
+        if (sec.quiz && sec.quiz.questions && sec.quiz.questions.length > 0) {
           secQuiz = {
-            title: quizTitle || `${sec.title} Quiz`,
-            timeLimitMinutes: Number(quizDurationMinutes) || 15,
-            passingScorePercent: Number(quizPassingScorePercent) || 70,
-            questions: quizQuestions.filter(q => q.questionText.trim()).map(q => {
-              const qType = q.questionType || 'MCQ';
+            id: sec.quiz.id || sec.quiz._id,
+            title: sec.quiz.title || `${sec.title} Quiz`,
+            timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+            passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
+            questions: sec.quiz.questions.filter(q => q.questionText && q.questionText.trim()).map((q, qIdx) => {
+              const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
               if (qType === 'TRUE_FALSE') {
                 const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
                 return {
+                  id: q.id || q._id,
                   questionText: q.questionText,
                   questionType: 'TRUE_FALSE',
                   options: ['True', 'False'],
                   correctAnswerIndex: idx,
-                  correctAnswerText: idx === 0 ? 'True' : 'False'
+                  correctAnswerText: idx === 0 ? 'True' : 'False',
+                  order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               } else if (qType === 'FILL_IN_BLANK') {
                 return {
+                  id: q.id || q._id,
                   questionText: q.questionText,
                   questionType: 'FILL_IN_BLANK',
                   options: [],
                   correctAnswerIndex: null,
-                  correctAnswerText: (q.correctAnswerText || '').trim()
+                  correctAnswerText: (q.correctAnswerText || '').trim(),
+                  order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               } else {
                 const idx = Number(q.correctAnswerIndex) || 0;
                 const opts = Array.isArray(q.options) ? q.options : [];
                 return {
+                  id: q.id || q._id,
                   questionText: q.questionText,
                   questionType: 'MCQ',
                   options: opts,
                   correctAnswerIndex: idx,
-                  correctAnswerText: opts[idx] || ''
+                  correctAnswerText: opts[idx] || '',
+                  order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               }
             })
@@ -609,9 +750,8 @@ export const CourseBuilder = () => {
   const stepsList = [
     { step: 1, label: 'Basic Info' },
     { step: 2, label: 'Course Builder' },
-    { step: 3, label: 'Quiz' },
-    { step: 4, label: 'Assignment & Resources' },
-    { step: 5, label: 'Review & Publish' }
+    { step: 3, label: 'Assignment & Resources' },
+    { step: 4, label: 'Review & Publish' }
   ];
 
   return (
@@ -876,6 +1016,15 @@ export const CourseBuilder = () => {
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" /> Add Lecture
                       </button>
+                      {!sec.quiz && (
+                        <button
+                          type="button"
+                          onClick={() => openAddQuizModal(sIdx)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold hover:bg-amber-100 transition-colors cursor-pointer inline-flex items-center"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" /> Add Quiz
+                        </button>
+                      )}
                       <button onClick={() => openEditSectionModal(sIdx)} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer">
                         <Edit3 className="w-4 h-4" />
                       </button>
@@ -917,6 +1066,63 @@ export const CourseBuilder = () => {
                       ))
                     )}
                   </div>
+
+                  {/* Section Quiz (Configured independently per section) */}
+                  <div className="pt-2 pl-4 border-l-2 border-slate-200">
+                    {sec.quiz ? (
+                      <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-start sm:items-center space-x-3">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 font-bold">
+                            <HelpCircle className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-800">
+                                Section Quiz
+                              </span>
+                              <p className="font-bold text-slate-900 text-sm">{sec.quiz.title || `${sec.title} Quiz`}</p>
+                            </div>
+                            <div className="flex items-center space-x-3 text-[11px] text-slate-600 mt-1">
+                              <span>{sec.quiz.questions?.length || 0} Questions</span>
+                              <span>•</span>
+                              <span>{sec.quiz.timeLimitMinutes || 15} Mins</span>
+                              <span>•</span>
+                              <span>Pass: {sec.quiz.passingScorePercent || 70}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 self-end sm:self-center">
+                          <button
+                            type="button"
+                            onClick={() => openEditQuizModal(sIdx)}
+                            className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-800 font-semibold text-xs hover:bg-amber-50 cursor-pointer inline-flex items-center shadow-xs"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit Quiz
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSectionQuiz(sIdx)}
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600 font-semibold text-xs hover:bg-rose-50 cursor-pointer inline-flex items-center shadow-xs"
+                            title="Remove Quiz"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-start">
+                        <button
+                          type="button"
+                          onClick={() => openAddQuizModal(sIdx)}
+                          className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-dashed border-amber-300 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1.5" />
+                          Add Quiz for {sec.title}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -924,276 +1130,19 @@ export const CourseBuilder = () => {
         </div>
       )}
 
-      {/* STEP 3 — QUIZ / ASSESSMENT (OPTIONAL) */}
+      {/* STEP 3 — ASSIGNMENT & RESOURCES (OPTIONAL) */}
       {currentStep === 3 && (
         <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
           <div className="border-b border-slate-200 pb-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900 flex items-center">
-                <HelpCircle className="w-5 h-5 mr-2 text-amber-600" />
-                Step 3: Quiz / Assessment (Optional)
-              </h2>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                Optional Step
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">Add an MCQ assessment quiz for one of your course sections.</p>
-          </div>
-
-          <div className="space-y-4">
-            <label className="flex items-center space-x-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={addQuizEnabled}
-                onChange={(e) => setAddQuizEnabled(e.target.checked)}
-                className="w-5 h-5 text-amber-600 rounded cursor-pointer"
-              />
-              <div>
-                <span className="font-bold text-slate-900 text-sm">Add Quiz to this Course</span>
-                <p className="text-xs text-slate-500">Enable multiple choice questions to evaluate learner knowledge.</p>
-              </div>
-            </label>
-
-            {addQuizEnabled && (
-              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Select Section for Quiz</label>
-                    <select
-                      value={quizSectionIdx}
-                      onChange={(e) => setQuizSectionIdx(Number(e.target.value))}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-900 outline-none cursor-pointer"
-                    >
-                      {sections.map((sec, idx) => (
-                        <option key={idx} value={idx}>
-                          Section {idx + 1}: {sec.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Quiz Title</label>
-                    <input
-                      type="text"
-                      value={quizTitle}
-                      onChange={(e) => setQuizTitle(e.target.value)}
-                      placeholder="e.g. Fundamentals MCQ Quiz"
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Quiz Duration (Minutes)</label>
-                    <input
-                      type="number"
-                      value={quizDurationMinutes}
-                      onChange={(e) => setQuizDurationMinutes(e.target.value)}
-                      min={1}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Passing Score (%)</label>
-                    <input
-                      type="number"
-                      value={quizPassingScorePercent}
-                      onChange={(e) => setQuizPassingScorePercent(e.target.value)}
-                      min={1}
-                      max={100}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Questions Builder */}
-                <div className="space-y-4 pt-4 border-t border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
-                      Quiz Questions ({quizQuestions.length})
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={handleAddQuestion}
-                      className="px-3 py-1 rounded-xl bg-amber-50 text-amber-700 font-semibold text-xs hover:bg-amber-100 border border-amber-200 cursor-pointer"
-                    >
-                      + Add Question
-                    </button>
-                  </div>
-
-                  {quizQuestions.map((q, qIdx) => {
-                    const currentType = q.questionType || 'MCQ';
-
-                    return (
-                      <div key={qIdx} className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-xs text-amber-700 whitespace-nowrap">Question #{qIdx + 1}</span>
-                          <div className="flex items-center space-x-2">
-                            <select
-                              value={currentType}
-                              onChange={(e) => {
-                                const newType = e.target.value;
-                                const updated = [...quizQuestions];
-                                updated[qIdx].questionType = newType;
-                                if (newType === 'TRUE_FALSE') {
-                                  updated[qIdx].options = ['True', 'False'];
-                                  updated[qIdx].correctAnswerIndex = 0;
-                                  updated[qIdx].correctAnswerText = 'True';
-                                } else if (newType === 'FILL_IN_BLANK') {
-                                  updated[qIdx].options = [];
-                                  updated[qIdx].correctAnswerIndex = null;
-                                  updated[qIdx].correctAnswerText = updated[qIdx].correctAnswerText || '';
-                                } else {
-                                  // MCQ
-                                  if (!updated[qIdx].options || updated[qIdx].options.length === 0) {
-                                    updated[qIdx].options = ['', '', '', ''];
-                                  }
-                                  updated[qIdx].correctAnswerIndex = 0;
-                                }
-                                setQuizQuestions(updated);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
-                            >
-                              <option value="MCQ">MCQ (Multiple Choice)</option>
-                              <option value="TRUE_FALSE">True / False</option>
-                              <option value="FILL_IN_BLANK">Fill in the Blank</option>
-                            </select>
-                            {quizQuestions.length > 1 && (
-                              <button onClick={() => handleDeleteQuestion(qIdx)} className="text-slate-400 hover:text-rose-600 cursor-pointer p-1">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <input
-                          type="text"
-                          value={q.questionText}
-                          onChange={(e) => {
-                            const updated = [...quizQuestions];
-                            updated[qIdx].questionText = e.target.value;
-                            setQuizQuestions(updated);
-                          }}
-                          placeholder="Enter question text..."
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-900 outline-none"
-                        />
-
-                        {/* MCQ Field Rendering */}
-                        {currentType === 'MCQ' && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {(q.options || ['', '', '', '']).map((opt, optIdx) => (
-                              <div key={optIdx} className="flex items-center space-x-2 p-1.5 rounded-lg bg-slate-50 border border-slate-200">
-                                <input
-                                  type="radio"
-                                  name={`correct_${qIdx}`}
-                                  checked={q.correctAnswerIndex === optIdx}
-                                  onChange={() => {
-                                    const updated = [...quizQuestions];
-                                    updated[qIdx].correctAnswerIndex = optIdx;
-                                    setQuizQuestions(updated);
-                                  }}
-                                  className="text-amber-600 cursor-pointer"
-                                />
-                                <input
-                                  type="text"
-                                  value={opt}
-                                  onChange={(e) => {
-                                    const updated = [...quizQuestions];
-                                    if (!updated[qIdx].options) updated[qIdx].options = ['', '', '', ''];
-                                    updated[qIdx].options[optIdx] = e.target.value;
-                                    setQuizQuestions(updated);
-                                  }}
-                                  placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
-                                  className="flex-1 bg-transparent border-none text-xs text-slate-900 focus:ring-0"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* True / False Field Rendering */}
-                        {currentType === 'TRUE_FALSE' && (
-                          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                            <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Select Correct Answer:</span>
-                            <div className="flex space-x-4">
-                              <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`tf_correct_${qIdx}`}
-                                  checked={q.correctAnswerIndex === 0}
-                                  onChange={() => {
-                                    const updated = [...quizQuestions];
-                                    updated[qIdx].correctAnswerIndex = 0;
-                                    updated[qIdx].correctAnswerText = 'True';
-                                    setQuizQuestions(updated);
-                                  }}
-                                  className="text-amber-600 cursor-pointer"
-                                />
-                                <span>True</span>
-                              </label>
-                              <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`tf_correct_${qIdx}`}
-                                  checked={q.correctAnswerIndex === 1}
-                                  onChange={() => {
-                                    const updated = [...quizQuestions];
-                                    updated[qIdx].correctAnswerIndex = 1;
-                                    updated[qIdx].correctAnswerText = 'False';
-                                    setQuizQuestions(updated);
-                                  }}
-                                  className="text-amber-600 cursor-pointer"
-                                />
-                                <span>False</span>
-                              </label>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Fill in the Blank Field Rendering */}
-                        {currentType === 'FILL_IN_BLANK' && (
-                          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
-                            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer Text:</label>
-                            <input
-                              type="text"
-                              value={q.correctAnswerText || ''}
-                              onChange={(e) => {
-                                const updated = [...quizQuestions];
-                                updated[qIdx].correctAnswerText = e.target.value;
-                                setQuizQuestions(updated);
-                              }}
-                              placeholder="Enter expected correct text (evaluation is case-insensitive)..."
-                              className="w-full px-3 py-1.5 rounded-md border border-slate-300 text-xs font-semibold text-slate-900 outline-none"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* STEP 4 — ASSIGNMENT & RESOURCES (OPTIONAL) */}
-      {currentStep === 4 && (
-        <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
-          <div className="border-b border-slate-200 pb-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center">
                 <FileCheck2 className="w-5 h-5 mr-2 text-emerald-600" />
-                Step 4: Assignment & Resources (Optional)
+                Step 3: Assignment & Resources (Optional)
               </h2>
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 Optional Step
               </span>
             </div>
-            <p className="text-xs text-slate-500">Optionally add a project assignment or upload downloadable PDF resources.</p>
           </div>
 
           <div className="space-y-6">
@@ -1294,13 +1243,13 @@ export const CourseBuilder = () => {
         </div>
       )}
 
-      {/* STEP 5 — FINAL STEP — REVIEW & PUBLISH */}
-      {currentStep === 5 && (
+      {/* STEP 4 — FINAL REVIEW & PUBLISH */}
+      {currentStep === 4 && (
         <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
           <div className="border-b border-slate-200 pb-3">
             <h2 className="text-lg font-bold text-slate-900 flex items-center">
               <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600" />
-              Step 5: Final Review & Publish
+              Step 4: Final Review & Publish
             </h2>
             <p className="text-xs text-slate-500">Review your course summary before saving as draft or publishing.</p>
           </div>
@@ -1328,30 +1277,34 @@ export const CourseBuilder = () => {
               )}
             </div>
 
-            {/* Sections & Lectures Summary */}
+            {/* Sections, Lectures & Quizzes Summary */}
             <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
               <h4 className="font-bold text-slate-900 text-sm flex items-center">
                 <Layers className="w-4 h-4 mr-1.5 text-emerald-600" /> Course Structure ({sections.length} Sections)
               </h4>
               <div className="space-y-2">
                 {sections.map((sec, sIdx) => (
-                  <div key={sIdx} className="p-3 rounded-xl bg-white border border-slate-200">
-                    <p className="font-bold text-slate-900">Section {sIdx + 1}: {sec.title}</p>
+                  <div key={sIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-slate-900">Section {sIdx + 1}: {sec.title}</p>
+                      {sec.quiz ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                          Quiz: {sec.quiz.questions?.length || 0} Questions
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-semibold">No Quiz</span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-slate-500">{sec.lectures?.length || 0} Lectures attached</p>
+                    {sec.quiz && (
+                      <p className="text-[11px] text-amber-700 font-medium">
+                        ✦ Quiz: {sec.quiz.title} ({sec.quiz.timeLimitMinutes || 15}m • Pass: {sec.quiz.passingScorePercent || 70}%)
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
-
-            {/* Quiz Summary */}
-            {addQuizEnabled && (
-              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 space-y-1">
-                <h4 className="font-bold text-xs flex items-center">
-                  <HelpCircle className="w-4 h-4 mr-1.5" /> MCQ Quiz Included: {quizTitle || 'Assessment Quiz'}
-                </h4>
-                <p className="text-[11px]">Duration: {quizDurationMinutes}m • Passing: {quizPassingScorePercent}% • Questions: {quizQuestions.length}</p>
-              </div>
-            )}
 
             {/* Assignment Summary */}
             {addAssignmentEnabled && (
@@ -1386,7 +1339,7 @@ export const CourseBuilder = () => {
         </button>
 
         <div className="flex items-center space-x-3">
-          {currentStep < 5 ? (
+          {currentStep < 4 ? (
             <button
               onClick={handleNextStep}
               className="inline-flex items-center px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors"
@@ -1500,6 +1453,252 @@ export const CourseBuilder = () => {
             </button>
             <button type="submit" className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700">
               Save Lecture
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* SECTION QUIZ MODAL */}
+      <Modal
+        isOpen={showQuizModal}
+        onClose={() => setShowQuizModal(false)}
+        title={targetSectionIdx !== null && sections[targetSectionIdx]?.quiz ? `Edit Quiz — ${sections[targetSectionIdx]?.title}` : `Add Quiz — ${sections[targetSectionIdx]?.title || 'Section'}`}
+      >
+        <form onSubmit={handleSaveSectionQuiz} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Quiz Title <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={quizTitle}
+                onChange={(e) => setQuizTitle(e.target.value)}
+                required
+                placeholder="e.g. Section Assessment Quiz"
+                className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Duration (Minutes)</label>
+              <input
+                type="number"
+                value={quizDurationMinutes}
+                onChange={(e) => setQuizDurationMinutes(Math.max(1, Number(e.target.value) || 1))}
+                min={1}
+                className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Passing Score (%)</label>
+              <input
+                type="number"
+                value={quizPassingScorePercent}
+                onChange={(e) => setQuizPassingScorePercent(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                min={1}
+                max={100}
+                className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-600"
+              />
+            </div>
+          </div>
+
+          {/* Question Builder */}
+          <div className="space-y-4 pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+                Questions ({quizQuestions.length})
+              </h4>
+              <button
+                type="button"
+                onClick={handleAddQuestion}
+                className="px-3 py-1 rounded-xl bg-amber-50 text-amber-700 font-semibold text-xs hover:bg-amber-100 border border-amber-200 cursor-pointer inline-flex items-center"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" /> Add Question
+              </button>
+            </div>
+
+            {quizQuestions.map((q, qIdx) => {
+              const currentType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+
+              return (
+                <div key={qIdx} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-xs text-amber-700">Question #{qIdx + 1}</span>
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={currentType}
+                        onChange={(e) => {
+                          const newType = e.target.value;
+                          const updated = [...quizQuestions];
+                          updated[qIdx].questionType = newType;
+                          if (newType === 'TRUE_FALSE') {
+                            updated[qIdx].options = ['True', 'False'];
+                            updated[qIdx].correctAnswerIndex = 0;
+                            updated[qIdx].correctAnswerText = 'True';
+                          } else if (newType === 'FILL_IN_BLANK') {
+                            updated[qIdx].options = [];
+                            updated[qIdx].correctAnswerIndex = null;
+                            updated[qIdx].correctAnswerText = '';
+                          } else {
+                            if (!updated[qIdx].options || updated[qIdx].options.length < 2) {
+                              updated[qIdx].options = ['', '', '', ''];
+                            }
+                            updated[qIdx].correctAnswerIndex = 0;
+                            updated[qIdx].correctAnswerText = updated[qIdx].options[0] || '';
+                          }
+                          setQuizQuestions(updated);
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                      >
+                        <option value="MCQ">Multiple Choice (MCQ)</option>
+                        <option value="TRUE_FALSE">True / False</option>
+                        <option value="FILL_IN_BLANK">Fill in the Blank</option>
+                      </select>
+
+                      {quizQuestions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteQuestion(qIdx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                          title="Delete Question"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      value={q.questionText}
+                      onChange={(e) => {
+                        const updated = [...quizQuestions];
+                        updated[qIdx].questionText = e.target.value;
+                        setQuizQuestions(updated);
+                      }}
+                      required
+                      placeholder="Enter the question text..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
+                    />
+                  </div>
+
+                  {/* MCQ Options Rendering */}
+                  {currentType === 'MCQ' && (
+                    <div className="space-y-2">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Options (select radio for correct answer):
+                      </span>
+                      {(q.options || ['', '', '', '']).map((opt, optIdx) => (
+                        <div key={optIdx} className="flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200">
+                          <input
+                            type="radio"
+                            name={`correct_opt_${qIdx}`}
+                            checked={Number(q.correctAnswerIndex) === optIdx}
+                            onChange={() => {
+                              const updated = [...quizQuestions];
+                              updated[qIdx].correctAnswerIndex = optIdx;
+                              updated[qIdx].correctAnswerText = opt;
+                              setQuizQuestions(updated);
+                            }}
+                            className="text-amber-600 cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={opt}
+                            onChange={(e) => {
+                              const updated = [...quizQuestions];
+                              if (!updated[qIdx].options) updated[qIdx].options = ['', '', '', ''];
+                              updated[qIdx].options[optIdx] = e.target.value;
+                              if (Number(updated[qIdx].correctAnswerIndex) === optIdx) {
+                                updated[qIdx].correctAnswerText = e.target.value;
+                              }
+                              setQuizQuestions(updated);
+                            }}
+                            placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
+                            className="flex-1 bg-transparent border-none text-xs text-slate-900 outline-none focus:ring-0"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* True / False Field Rendering */}
+                  {currentType === 'TRUE_FALSE' && (
+                    <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-2">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Select Correct Answer:</span>
+                      <div className="flex space-x-4">
+                        <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`tf_correct_${qIdx}`}
+                            checked={Number(q.correctAnswerIndex) === 0}
+                            onChange={() => {
+                              const updated = [...quizQuestions];
+                              updated[qIdx].correctAnswerIndex = 0;
+                              updated[qIdx].correctAnswerText = 'True';
+                              setQuizQuestions(updated);
+                            }}
+                            className="text-amber-600 cursor-pointer"
+                          />
+                          <span>True</span>
+                        </label>
+                        <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`tf_correct_${qIdx}`}
+                            checked={Number(q.correctAnswerIndex) === 1}
+                            onChange={() => {
+                              const updated = [...quizQuestions];
+                              updated[qIdx].correctAnswerIndex = 1;
+                              updated[qIdx].correctAnswerText = 'False';
+                              setQuizQuestions(updated);
+                            }}
+                            className="text-amber-600 cursor-pointer"
+                          />
+                          <span>False</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fill in the Blank Field Rendering */}
+                  {currentType === 'FILL_IN_BLANK' && (
+                    <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer Text:</label>
+                      <input
+                        type="text"
+                        value={q.correctAnswerText || ''}
+                        onChange={(e) => {
+                          const updated = [...quizQuestions];
+                          updated[qIdx].correctAnswerText = e.target.value;
+                          setQuizQuestions(updated);
+                        }}
+                        placeholder="Enter expected correct text (evaluation is case-insensitive)..."
+                        className="w-full px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-4 border-t border-slate-200 flex justify-end space-x-3 sticky bottom-0 bg-white py-2">
+            <button
+              type="button"
+              onClick={() => setShowQuizModal(false)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 text-white cursor-pointer hover:bg-amber-700"
+            >
+              Save Section Quiz
             </button>
           </div>
         </form>

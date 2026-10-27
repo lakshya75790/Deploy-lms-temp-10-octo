@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const ThemeContext = createContext();
 
@@ -20,9 +20,41 @@ export const ThemeProvider = ({ children }) => {
     localStorage.setItem('it360_lms_theme', theme);
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  }, []);
+
+  // Global Ctrl + M keyboard shortcut to toggle Light Mode / Dark Mode
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check for Ctrl + M (or Cmd + M on macOS), ignoring Alt key combinations
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'm' || e.key === 'M' || e.code === 'KeyM')) {
+        const target = e.target;
+        if (target) {
+          const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+          const isTextInput =
+            (tagName === 'INPUT' && !['CHECKBOX', 'RADIO', 'BUTTON', 'SUBMIT', 'RESET', 'FILE', 'RANGE', 'COLOR', 'IMAGE'].includes(target.type?.toUpperCase())) ||
+            tagName === 'TEXTAREA' ||
+            Boolean(target.isContentEditable) ||
+            target.getAttribute?.('contenteditable') === 'true' ||
+            Boolean(target.closest?.('[contenteditable="true"]'));
+
+          // Do not trigger toggle when the user is typing inside text-editing controls
+          if (isTextInput) {
+            return;
+          }
+        }
+
+        e.preventDefault();
+        toggleTheme();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toggleTheme]);
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, isDark: theme === 'dark' }}>
@@ -32,3 +64,4 @@ export const ThemeProvider = ({ children }) => {
 };
 
 export const useTheme = () => useContext(ThemeContext);
+

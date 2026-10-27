@@ -5,6 +5,7 @@ const ApiResponse = require('../utils/apiResponse');
 const { autoAssignMandatoryTrainings, autoAssignDeptRoleTrainings } = require('../services/trainingAssignmentService');
 const { sendUserNotification, sendAdminNotification } = require('../services/notificationService');
 const { logAuditAction } = require('../services/auditLogService');
+const { checkAndReserveLicense, getOrgLicenseStats, invalidateOrgLicenseCache } = require('../services/licenseService');
 
 const formatUserResponse = (user) => {
   if (!user) return null;
@@ -200,8 +201,6 @@ const deleteDepartment = async (req, res, next) => {
   }
 };
 
-const { checkAndReserveLicense } = require('../services/licenseService');
-
 /**
  * @desc    Create Instructor (Only Admin can create)
  * @route   POST /api/org/instructors
@@ -272,8 +271,9 @@ const createInstructor = async (req, res, next) => {
     ]).catch(err => console.error('Background task error in createInstructor:', err));
 
     const userObj = formatUserResponse(instructor);
+    const updatedStats = await getOrgLicenseStats(orgId);
 
-    res.status(201).json(new ApiResponse(201, { instructor: userObj }, 'Instructor account created successfully'));
+    res.status(201).json(new ApiResponse(201, { instructor: userObj, licenseStats: updatedStats }, 'Instructor account created successfully'));
   } catch (error) {
     next(error);
   }
@@ -288,29 +288,32 @@ const getInstructors = async (req, res, next) => {
   try {
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
 
-    const instructors = await prisma.user.findMany({
-      where: {
-        organizationId: orgId,
-        role: 'Instructor'
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        profilePicture: true,
-        departmentId: true,
-        organizationId: true,
-        createdAt: true,
-        department: { select: { id: true, name: true } }
-      },
-      orderBy: { name: 'asc' }
-    });
+    const [instructors, licenseStats] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          organizationId: orgId,
+          role: 'Instructor'
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          profilePicture: true,
+          departmentId: true,
+          organizationId: true,
+          createdAt: true,
+          department: { select: { id: true, name: true } }
+        },
+        orderBy: { name: 'asc' }
+      }),
+      getOrgLicenseStats(orgId)
+    ]);
 
     const formattedInstructors = instructors.map(formatUserResponse);
 
-    res.status(200).json(new ApiResponse(200, { instructors: formattedInstructors }, 'Instructors retrieved successfully'));
+    res.status(200).json(new ApiResponse(200, { instructors: formattedInstructors, licenseStats }, 'Instructors retrieved successfully'));
   } catch (error) {
     next(error);
   }
@@ -368,8 +371,6 @@ const createAdmin = async (req, res, next) => {
     next(error);
   }
 };
-
-const { getOrgLicenseStats } = require('../services/licenseService');
 
 /**
  * @desc    Get all Employees
@@ -560,8 +561,101 @@ const updateUserStatus = async (req, res, next) => {
       )
     ]).catch(err => console.error('Background notification error in updateUserStatus:', err));
 
+    const updatedStats = await getOrgLicenseStats(orgId);
+
     res.status(200).json(
-      new ApiResponse(200, { user: formatUserResponse(updatedUser) }, `User ${actionMessage} successfully`)
+      new ApiResponse(200, { user: formatUserResponse(updatedUser), licenseStats: updatedStats }, `User ${actionMessage} successfully`)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Permanently Delete User (Learner or Instructor)
+ * @route   DELETE /api/org/users/:id
+ * @access  Private (Organization Admin)
+ */
+const deleteUser = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const targetUserId = String(req.params.id);
+
+    const targetUser = await prisma.user.findFirst({
+      where: {
+        id: targetUserId,
+        organizationId: orgId
+      }
+    });
+
+    if (!targetUser) {
+      throw new ApiError(404, 'User not found in your organization');
+    }
+
+    if (targetUser.role === 'Admin' || targetUser.role === 'SuperAdmin') {
+      throw new ApiError(400, 'Organization Administrators cannot be deleted through this action');
+    }
+
+    if (targetUser.role === 'Instructor') {
+      const createdCoursesCount = await prisma.training.count({
+        where: { createdBy: targetUserId }
+      });
+      if (createdCoursesCount > 0) {
+        throw new ApiError(
+          400,
+          `Cannot delete instructor because they are the creator of ${createdCoursesCount} course(s). Please delete or reassign their courses first to preserve learning materials.`
+        );
+      }
+
+      const createdQuizzesCount = await prisma.quiz.count({
+        where: { createdBy: targetUserId }
+      });
+      if (createdQuizzesCount > 0) {
+        throw new ApiError(
+          400,
+          `Cannot delete instructor because they are the creator of ${createdQuizzesCount} standalone quiz(zes). Please remove or reassign quizzes first.`
+        );
+      }
+
+      const createdAssignmentsCount = await prisma.assignment.count({
+        where: { createdBy: targetUserId }
+      });
+      if (createdAssignmentsCount > 0) {
+        throw new ApiError(
+          400,
+          `Cannot delete instructor because they are the creator of ${createdAssignmentsCount} standalone assignment(s). Please remove or reassign assignments first.`
+        );
+      }
+    }
+
+    // Perform permanent deletion
+    await prisma.user.delete({
+      where: { id: targetUserId }
+    });
+
+    invalidateOrgLicenseCache(orgId);
+
+    const auditAction = targetUser.role === 'Instructor' ? 'DELETE_INSTRUCTOR' : 'DELETE_EMPLOYEE';
+    logAuditAction(
+      req.user,
+      auditAction,
+      'User',
+      targetUserId,
+      `Permanently deleted ${targetUser.role} "${targetUser.name}" (${targetUser.email})`
+    ).catch(err => console.error('Audit log error in deleteUser:', err));
+
+    const updatedStats = await getOrgLicenseStats(orgId);
+
+    res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          deletedUserId: targetUserId,
+          role: targetUser.role,
+          licenseStats: updatedStats
+        },
+        `${targetUser.role === 'Instructor' ? 'Instructor' : 'Learner'} permanently deleted successfully`
+      )
     );
   } catch (error) {
     next(error);
@@ -578,5 +672,6 @@ module.exports = {
   createAdmin,
   getEmployees,
   updateProfile,
-  updateUserStatus
+  updateUserStatus,
+  deleteUser
 };

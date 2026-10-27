@@ -31,7 +31,7 @@ const getNotifications = async (req, res, next) => {
     const whereClause = { organizationId: orgId };
 
     if (req.user.role === 'Admin') {
-      whereClause.OR = [{ recipientId: userId }, { role: 'Admin' }];
+      whereClause.OR = [{ recipientId: userId }, { recipientId: null, role: 'Admin' }];
     } else {
       whereClause.recipientId = userId;
     }
@@ -130,7 +130,7 @@ const markAllAsRead = async (req, res, next) => {
     const whereClause = { organizationId: orgId, isRead: false };
 
     if (req.user.role === 'Admin') {
-      whereClause.OR = [{ recipientId: userId }, { role: 'Admin' }];
+      whereClause.OR = [{ recipientId: userId }, { recipientId: null, role: 'Admin' }];
     } else {
       whereClause.recipientId = userId;
     }

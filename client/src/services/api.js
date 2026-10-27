@@ -116,6 +116,7 @@ export const createAdmin = (data) => api.post('/org/admins', data);
 export const getEmployees = () => api.get('/org/employees');
 export const updateOrgProfile = (data) => api.put('/org/profile', data);
 export const updateUserStatus = (id, status) => api.put(`/org/users/${id}/status`, { status });
+export const deleteUser = (id) => api.delete(`/org/users/${id}`);
 
 // Training Categories APIs
 export const getCategories = () => api.get('/categories');

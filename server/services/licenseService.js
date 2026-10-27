@@ -144,8 +144,7 @@ const getOrgLicenseStats = async (organizationId, tx = prisma) => {
     tx.user.count({
       where: {
         organizationId: cleanOrgId,
-        role: { in: ['Admin', 'Instructor', 'Employee'] },
-        status: 'active'
+        role: { in: ['Admin', 'Instructor', 'Employee'] }
       }
     })
   ]);
@@ -212,8 +211,7 @@ const checkAndReserveLicense = async (organizationId, tx) => {
   const usedLicenses = await tx.user.count({
     where: {
       organizationId: cleanOrgId,
-      role: { in: ['Admin', 'Instructor', 'Employee'] },
-      status: 'active'
+      role: { in: ['Admin', 'Instructor', 'Employee'] }
     }
   });
 
@@ -259,8 +257,7 @@ const ensureOrganizationLicensesValid = async () => {
       by: ['organizationId'],
       where: {
         organizationId: { in: orgIds },
-        role: { in: ['Admin', 'Instructor', 'Employee'] },
-        status: 'active'
+        role: { in: ['Admin', 'Instructor', 'Employee'] }
       },
       _count: { id: true }
     });

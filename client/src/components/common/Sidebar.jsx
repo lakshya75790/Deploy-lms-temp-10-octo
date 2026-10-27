@@ -181,7 +181,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
             onClick={onCloseMobile}
           />
           <div
-            className={`relative flex-1 max-w-xs w-full h-full z-10 shadow-2xl transform transition-transform duration-300 ease-out ${
+            className={`relative flex-1 max-w-[280px] xs:max-w-xs w-full h-full z-10 shadow-2xl transform transition-transform duration-300 ease-out ${
               isAnimatedIn ? 'translate-x-0' : '-translate-x-full'
             }`}
           >
