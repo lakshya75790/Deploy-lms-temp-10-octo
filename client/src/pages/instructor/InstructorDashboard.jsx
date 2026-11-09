@@ -186,21 +186,21 @@ export const InstructorDashboard = () => {
         </div>
 
         {/* Pending Reviews */}
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between transition-all hover:border-slate-300">
-          <div className="flex items-center space-x-3.5">
-            <div className="p-3 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
-              <FileCheck2 className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Pending Reviews</p>
+        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-3.5 transition-all hover:border-slate-300">
+          <div className="p-3 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
+            <FileCheck2 className="w-6 h-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-slate-500 truncate" title="Pending Reviews">Pending Reviews</p>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
               <h3 className="text-2xl font-black text-amber-600 font-heading">{stats.pendingReviews || 0}</h3>
+              {stats.pendingReviews > 0 && (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                  Action Needed
+                </span>
+              )}
             </div>
           </div>
-          {stats.pendingReviews > 0 && (
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
-              Action Needed
-            </span>
-          )}
         </div>
 
         {/* Overdue */}

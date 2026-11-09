@@ -4,13 +4,14 @@ import { getMyAssignments } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { formatDate } from '../../utils/formatters';
-import { GraduationCap, Play, Lock, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { GraduationCap, Play, Lock, CheckCircle2, Clock, Sparkles, Search, X } from 'lucide-react';
 
 export const MyTrainings = () => {
   const navigate = useNavigate();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // 'all' | 'in_progress' | 'completed' | 'overdue'
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     getMyAssignments()
@@ -21,12 +22,24 @@ export const MyTrainings = () => {
 
   const now = new Date();
 
-  const filtered = assignments.filter(a => {
+  const filtered = assignments.filter((a) => {
+    const t = a.trainingId;
+    if (!t) return false;
+
+    // 1. Status Filter
     const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && a.status !== 'Completed');
-    if (filter === 'completed') return a.status === 'Completed';
-    if (filter === 'overdue') return isOverdue;
-    if (filter === 'in_progress') return a.status === 'In Progress' || a.status === 'Assigned';
-    return true;
+    if (filter === 'completed' && a.status !== 'Completed') return false;
+    if (filter === 'overdue' && !isOverdue) return false;
+    if (filter === 'in_progress' && !(a.status === 'In Progress' || a.status === 'Assigned')) return false;
+
+    // 2. Search Query
+    if (!search.trim()) return true;
+    const term = search.trim().toLowerCase();
+    const titleMatch = (t.title || '').toLowerCase().includes(term);
+    const descMatch = (t.description || '').toLowerCase().includes(term);
+    const catMatch = (t.categoryId?.name || '').toLowerCase().includes(term);
+    const sectionMatch = Array.isArray(t.sections) && t.sections.some(s => (s.title || '').toLowerCase().includes(term));
+    return titleMatch || descMatch || catMatch || sectionMatch;
   });
 
   return (
@@ -66,13 +79,72 @@ export const MyTrainings = () => {
         </div>
       </div>
 
+      {/* Search Bar Controls */}
+      {!loading && assignments.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search assigned courses by title, category, or syllabus..."
+              className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 font-medium self-start sm:self-center">
+            {search.trim() || filter !== 'all' ? (
+              <span>
+                Showing <strong className="text-slate-800">{filtered.length}</strong> of {assignments.length}
+              </span>
+            ) : (
+              <span>
+                Total <strong className="text-slate-800">{assignments.length}</strong> {assignments.length === 1 ? 'course' : 'courses'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <LoadingSpinner text="Loading assigned courses..." />
+      ) : assignments.length === 0 ? (
+        <EmptyState
+          icon={GraduationCap}
+          title="No Courses Assigned"
+          description="You currently do not have any assigned courses in your training program."
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={GraduationCap}
-          title="No Courses Found"
-          description="You currently have no courses under this filter category."
+          title="No Matching Courses Found"
+          description={
+            search.trim()
+              ? `No assigned courses matched "${search.trim()}". Try searching with a different course title, category, or keyword.`
+              : 'You currently have no courses under this filter category.'
+          }
+          action={
+            <button
+              onClick={() => {
+                setSearch('');
+                setFilter('all');
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700 shadow-xs transition-colors"
+            >
+              Clear Search & Filter
+            </button>
+          }
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

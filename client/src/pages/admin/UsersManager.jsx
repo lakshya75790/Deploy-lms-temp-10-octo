@@ -4,7 +4,7 @@ import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
 import { useNotification } from '../../context/NotificationContext';
-import { Users, UserCheck, Plus, CheckCircle2, Power, Eye, EyeOff, AlertTriangle, AlertCircle, Trash2 } from 'lucide-react';
+import { Users, UserCheck, Plus, CheckCircle2, Power, Eye, EyeOff, AlertTriangle, AlertCircle, Trash2, Search, X } from 'lucide-react';
 import {
   validateName,
   validateEmail,
@@ -22,6 +22,7 @@ export const UsersManager = () => {
   const [departments, setDepartments] = useState([]);
   const [licenseStats, setLicenseStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   // Modal states
   const [showInstModal, setShowInstModal] = useState(false);
@@ -250,6 +251,27 @@ export const UsersManager = () => {
     }
   };
 
+  const filteredEmployees = employees.filter((emp) => {
+    if (!search.trim()) return true;
+    const term = search.trim().toLowerCase();
+    const nameMatch = (emp.name || '').toLowerCase().includes(term);
+    const emailMatch = (emp.email || '').toLowerCase().includes(term);
+    const idMatch = (emp.employeeId || emp.employee_id || emp.empId || '').toLowerCase().includes(term);
+    const deptMatch = (emp.departmentId?.name || '').toLowerCase().includes(term);
+    const roleMatch = (emp.jobRole || '').toLowerCase().includes(term);
+    return nameMatch || emailMatch || idMatch || deptMatch || roleMatch;
+  });
+
+  const filteredInstructors = instructors.filter((inst) => {
+    if (!search.trim()) return true;
+    const term = search.trim().toLowerCase();
+    const nameMatch = (inst.name || '').toLowerCase().includes(term);
+    const emailMatch = (inst.email || '').toLowerCase().includes(term);
+    const idMatch = (inst.employeeId || inst.employee_id || inst.empId || '').toLowerCase().includes(term);
+    const deptMatch = (inst.departmentId?.name || '').toLowerCase().includes(term);
+    return nameMatch || emailMatch || idMatch || deptMatch;
+  });
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       {/* Header & Tabs */}
@@ -318,11 +340,71 @@ export const UsersManager = () => {
         </button>
       </div>
 
+      {/* Search Controls */}
+      {!loading && (employees.length > 0 || instructors.length > 0) && (
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={
+                activeTab === 'employees'
+                  ? 'Search learners by name, email, employee ID, group, or role...'
+                  : 'Search instructors by name, email, or group...'
+              }
+              className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 font-medium self-start sm:self-center">
+            {search.trim() ? (
+              <span>
+                Showing <strong className="text-slate-800">
+                  {activeTab === 'employees' ? filteredEmployees.length : filteredInstructors.length}
+                </strong> of {activeTab === 'employees' ? employees.length : instructors.length} {activeTab === 'employees' ? (employees.length === 1 ? 'learner' : 'learners') : (instructors.length === 1 ? 'instructor' : 'instructors')}
+              </span>
+            ) : (
+              <span>
+                Total <strong className="text-slate-800">
+                  {activeTab === 'employees' ? employees.length : instructors.length}
+                </strong> {activeTab === 'employees' ? (employees.length === 1 ? 'learner' : 'learners') : (instructors.length === 1 ? 'instructor' : 'instructors')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <LoadingSpinner text="Loading users directory..." />
       ) : activeTab === 'employees' ? (
         employees.length === 0 ? (
           <EmptyState icon={Users} title="No Learners Registered" description="Learners can register publicly using your organization code." />
+        ) : filteredEmployees.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="No Matching Learners Found"
+            description={`No learners matched "${search.trim()}". Try searching by name, email, employee ID, group, or role.`}
+            action={
+              <button
+                onClick={() => setSearch('')}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+              >
+                Clear Search
+              </button>
+            }
+          />
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
@@ -337,7 +419,7 @@ export const UsersManager = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {employees.map((emp) => (
+                  {filteredEmployees.map((emp) => (
                     <tr key={emp._id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-4">
                         <div className="flex items-center space-x-3 min-w-0 max-w-xs sm:max-w-sm">
@@ -413,9 +495,23 @@ export const UsersManager = () => {
       ) : (
         instructors.length === 0 ? (
           <EmptyState icon={UserCheck} title="No Instructors Created" description="Create instructor accounts to build courses and grade submissions." />
+        ) : filteredInstructors.length === 0 ? (
+          <EmptyState
+            icon={UserCheck}
+            title="No Matching Instructors Found"
+            description={`No instructors matched "${search.trim()}". Try searching by name, email, or group.`}
+            action={
+              <button
+                onClick={() => setSearch('')}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+              >
+                Clear Search
+              </button>
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-            {instructors.map((inst) => (
+            {filteredInstructors.map((inst) => (
               <div
                 key={inst._id || inst.id}
                 className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all"

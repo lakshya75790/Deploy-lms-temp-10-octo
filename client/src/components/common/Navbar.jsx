@@ -136,16 +136,25 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                 <div className="relative inline-flex items-center justify-center">
                   <Bell className="w-5 h-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-2.5 -right-2.5 min-w-[18px] h-[18px] px-1.5 bg-emerald-600 text-white font-bold text-[10px] leading-none rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-xs z-10 pointer-events-none">
-                      {unreadCount > 10 ? '10+' : unreadCount}
-                    </span>
+                    unreadCount < 10 ? (
+                      <span className="absolute -top-2.5 -right-2.5 min-w-[18px] h-[18px] px-1.5 bg-emerald-600 text-white font-bold text-[10px] leading-none rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-xs z-10 pointer-events-none">
+                        {unreadCount}
+                      </span>
+                    ) : (
+                      <span className="absolute -top-2.5 -right-3.5 w-[22px] h-[22px] bg-emerald-600 text-white font-bold text-[9px] tracking-tight leading-none rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-xs z-10 pointer-events-none">
+                        10+
+                      </span>
+                    )
                   )}
                 </div>
               </button>
 
               {/* Notifications Dropdown Panel */}
               {showNotifDropdown && (
-                <div className="fixed sm:absolute top-16 sm:top-full mt-2 left-3 right-3 sm:left-auto sm:right-0 max-w-[calc(100vw-1.5rem)] sm:max-w-none sm:w-96 mx-auto sm:mx-0 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-fade-in flex flex-col max-h-[calc(100vh-5rem)]">
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="fixed sm:absolute top-16 sm:top-full mt-2 left-3 right-3 sm:left-auto sm:right-0 max-w-[calc(100vw-1.5rem)] sm:max-w-none sm:w-96 mx-auto sm:mx-0 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-fade-in flex flex-col max-h-[calc(100vh-5rem)]"
+                >
                   <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/70 shrink-0">
                     <div className="flex items-center space-x-2 min-w-0">
                       <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -171,15 +180,10 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                       notifications.map((n) => (
                         <div
                           key={n.id || n._id}
-                          onClick={() => {
-                            setShowNotifDropdown(false);
-                            if (n.action_url) {
-                              navigate(n.action_url);
-                            } else if (n.type?.includes('ASSIGNMENT') && user?.role === 'Instructor') {
-                              navigate('/instructor/submissions');
-                            }
+                          onClick={(e) => {
+                            e.stopPropagation();
                           }}
-                          className={`group relative p-3.5 text-xs transition-colors cursor-pointer ${
+                          className={`group relative p-3.5 text-xs transition-colors cursor-default ${
                             !n.isRead
                               ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-l-3 border-emerald-600 dark:border-emerald-500 hover:bg-emerald-100/50 dark:hover:bg-emerald-950/60'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'

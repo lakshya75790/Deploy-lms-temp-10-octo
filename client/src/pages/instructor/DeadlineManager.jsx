@@ -13,13 +13,16 @@ import {
   CheckCircle2,
   Sparkles,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  Search,
+  X
 } from 'lucide-react';
 
 export const DeadlineManager = () => {
   const { addToast } = useNotification();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   // Extend Modal state
   const [showExtendModal, setShowExtendModal] = useState(false);
@@ -137,6 +140,23 @@ export const DeadlineManager = () => {
     }
   };
 
+  const filteredAssignments = assignments.filter((a) => {
+    if (!search.trim()) return true;
+    const term = search.trim().toLowerCase();
+    const learnerName = (a.employeeId?.name || a.employee?.name || '').toLowerCase();
+    const learnerEmail = (a.employeeId?.email || a.employee?.email || '').toLowerCase();
+    const learnerEmpId = (a.employeeId?.employeeId || a.employeeId?.employee_id || a.employeeId?._id || '').toLowerCase();
+    const courseTitle = (a.trainingId?.title || '').toLowerCase();
+    const statusText = (a.status || '').toLowerCase();
+    return (
+      learnerName.includes(term) ||
+      learnerEmail.includes(term) ||
+      learnerEmpId.includes(term) ||
+      courseTitle.includes(term) ||
+      statusText.includes(term)
+    );
+  });
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
       {/* Top Header */}
@@ -152,10 +172,62 @@ export const DeadlineManager = () => {
         </div>
       </div>
 
+      {/* Search Bar Controls */}
+      {!loading && assignments.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search learners by name, email, employee ID, or training..."
+              className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 font-medium self-start sm:self-center">
+            {search.trim() ? (
+              <span>
+                Showing <strong className="text-slate-800">{filteredAssignments.length}</strong> of {assignments.length} {assignments.length === 1 ? 'record' : 'records'}
+              </span>
+            ) : (
+              <span>
+                Total <strong className="text-slate-800">{assignments.length}</strong> {assignments.length === 1 ? 'learner assignment' : 'learner assignments'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <LoadingSpinner text="Fetching learner training assignments..." />
       ) : assignments.length === 0 ? (
         <EmptyState icon={Clock} title="No Assignments Found" description="There are no active or overdue training assignments." />
+      ) : filteredAssignments.length === 0 ? (
+        <EmptyState
+          icon={Clock}
+          title="No Matching Learners Found"
+          description={`No learner assignments matched "${search.trim()}". Try searching by learner name, email, employee ID, or course.`}
+          action={
+            <button
+              onClick={() => setSearch('')}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+            >
+              Clear Search
+            </button>
+          }
+        />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
@@ -170,7 +242,7 @@ export const DeadlineManager = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {assignments.map((a) => {
+                {filteredAssignments.map((a) => {
                   const isCompleted = a.status === 'Completed' || a.progressPercentage === 100;
                   const isLocked = a.lockStatus?.isLocked || a.status === 'Locked';
                   const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < new Date() && !isCompleted);

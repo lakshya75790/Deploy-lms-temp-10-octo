@@ -1379,23 +1379,23 @@ export const CourseBuilder = () => {
                   </div>
 
                   {/* Section Quiz (Configured independently per section) */}
-                  <div className="pt-2 pl-4 border-l-2 border-slate-200">
+                  <div className="pt-2 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
                     {sec.quiz ? (
-                      <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs overflow-hidden">
+                      <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs overflow-hidden shadow-xs">
                         <div className="flex items-start space-x-3 min-w-0 flex-1">
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 font-bold mt-0.5">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0 font-bold mt-0.5 border border-amber-200/60 dark:border-amber-700/50">
                             <HelpCircle className="w-4 h-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-800 flex-shrink-0">
+                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-900 dark:bg-amber-800/90 dark:text-amber-100 dark:border dark:border-amber-600/60 flex-shrink-0">
                                 Section Quiz
                               </span>
-                              <p className="font-bold text-slate-900 text-sm break-words [overflow-wrap:anywhere] min-w-0 flex-1">
+                              <p className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words [overflow-wrap:anywhere] min-w-0 flex-1">
                                 {sec.quiz.title || `${sec.title} Quiz`}
                               </p>
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 mt-1">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300 mt-1">
                               <span>{sec.quiz.questions?.length || 0} Questions</span>
                               <span>•</span>
                               <span>{sec.quiz.timeLimitMinutes || 15} Mins</span>
@@ -1409,14 +1409,14 @@ export const CourseBuilder = () => {
                           <button
                             type="button"
                             onClick={() => openEditQuizModal(sIdx)}
-                            className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-800 font-semibold text-xs hover:bg-amber-50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap"
+                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700/70 text-amber-800 dark:text-amber-300 font-semibold text-xs hover:bg-amber-50 dark:hover:bg-amber-950/50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap transition-colors"
                           >
                             <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit Quiz
                           </button>
                           <button
                             type="button"
                             onClick={() => handleRemoveSectionQuiz(sIdx)}
-                            className="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600 font-semibold text-xs hover:bg-rose-50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap"
+                            className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 font-semibold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap transition-colors"
                             title="Remove Quiz"
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
@@ -1428,7 +1428,7 @@ export const CourseBuilder = () => {
                         <button
                           type="button"
                           onClick={() => openAddQuizModal(sIdx)}
-                          className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-dashed border-amber-300 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer max-w-full text-left"
+                          className="text-xs font-semibold text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100/80 dark:hover:bg-amber-950/50 border border-dashed border-amber-300 dark:border-amber-700/70 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer max-w-full text-left"
                         >
                           <Plus className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
                           <span className="break-words [overflow-wrap:anywhere]">
@@ -1677,7 +1677,12 @@ export const CourseBuilder = () => {
       </div>
 
       {/* SECTION MODAL */}
-      <Modal isOpen={showSectionModal} onClose={() => setShowSectionModal(false)} title={editingSectionIdx !== null ? 'Edit Section' : 'Add Section Module'}>
+      <Modal
+        isOpen={showSectionModal}
+        onClose={() => setShowSectionModal(false)}
+        title={editingSectionIdx !== null ? 'Edit Section' : 'Add Section Module'}
+        closeOnBackdropClick={false}
+      >
         <form onSubmit={handleSaveSection} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Section Title *</label>
@@ -1745,17 +1750,17 @@ export const CourseBuilder = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Video *</label>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Lecture Video *</label>
             <div className="flex flex-wrap items-center gap-3">
               <label
-                className={`inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
+                className={`inline-flex items-center px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shadow-xs border-2 border-emerald-600 dark:border-emerald-500 ${
                   uploadingVideo
-                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                    : 'bg-slate-900 text-white hover:bg-slate-800 cursor-pointer'
+                    ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 cursor-not-allowed'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 cursor-pointer'
                 }`}
               >
-                <Upload className="w-4 h-4 mr-1.5 text-emerald-400" />
-                {uploadingVideo ? `Uploading (${videoUploadProgress}%)...` : (lectureVideoUrl ? 'Replace Video File' : 'Upload Video File')}
+                <Upload className="w-4 h-4 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                {uploadingVideo ? `Uploading (${videoUploadProgress}%)...` : (lectureVideoUrl ? 'Replace Video' : 'Upload Video File')}
                 <input
                   type="file"
                   accept="video/*"
@@ -1767,14 +1772,14 @@ export const CourseBuilder = () => {
 
               {lectureVideoUrl && !uploadingVideo && (
                 <div className="flex items-center space-x-2">
-                  <div className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
+                  <div className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>{videoUploadState === 'success' ? 'Upload Complete' : 'Video Attached'}</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleDeleteLectureVideo}
-                    className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
+                    className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5 mr-1" />
                     Delete Video
@@ -1863,6 +1868,7 @@ export const CourseBuilder = () => {
         title={targetSectionIdx !== null && sections[targetSectionIdx]?.quiz ? `Edit Quiz — ${sections[targetSectionIdx]?.title}` : `Add Quiz — ${sections[targetSectionIdx]?.title || 'Section'}`}
         maxWidth="max-w-2xl"
         contentClassName="flex-1 flex flex-col min-h-0 overflow-hidden p-0 text-slate-800 dark:text-slate-200"
+        closeOnBackdropClick={false}
       >
         <form onSubmit={handleSaveSectionQuiz} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {/* Scrollable Form Body */}

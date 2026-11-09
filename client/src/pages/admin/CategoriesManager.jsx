@@ -5,7 +5,7 @@ import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
 import { useNotification } from '../../context/NotificationContext';
-import { FolderKanban, Plus, Edit2, Trash2, Check, AlertCircle } from 'lucide-react';
+import { FolderKanban, Plus, Edit2, Trash2, Check, AlertCircle, Search, X } from 'lucide-react';
 import { validateCategoryName, validateCategoryDescription } from '../../utils/userValidation';
 
 export const CategoriesManager = () => {
@@ -13,6 +13,7 @@ export const CategoriesManager = () => {
   const invalidateQueries = useInvalidateLmsQueries();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const [showModal, setShowModal] = useState(false);
   const [editingCat, setEditingCat] = useState(null);
@@ -137,6 +138,14 @@ export const CategoriesManager = () => {
     }
   };
 
+  const filteredCategories = categories.filter((c) => {
+    if (!search.trim()) return true;
+    const term = search.trim().toLowerCase();
+    const nameMatch = (c.name || '').toLowerCase().includes(term);
+    const descMatch = (c.description || '').toLowerCase().includes(term);
+    return nameMatch || descMatch;
+  });
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
@@ -155,13 +164,65 @@ export const CategoriesManager = () => {
         </button>
       </div>
 
+      {/* Search Bar */}
+      {!loading && categories.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search course categories by name..."
+              className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 font-medium self-start sm:self-center">
+            {search.trim() ? (
+              <span>
+                Showing <strong className="text-slate-800">{filteredCategories.length}</strong> of {categories.length} {categories.length === 1 ? 'category' : 'categories'}
+              </span>
+            ) : (
+              <span>
+                Total <strong className="text-slate-800">{categories.length}</strong> {categories.length === 1 ? 'category' : 'categories'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <LoadingSpinner text="Loading categories..." />
       ) : categories.length === 0 ? (
         <EmptyState icon={FolderKanban} title="No Categories Created" description="Add categories to classify organization courses." />
+      ) : filteredCategories.length === 0 ? (
+        <EmptyState
+          icon={FolderKanban}
+          title="No Matching Categories"
+          description={`No course categories matched "${search.trim()}". Try searching for a different category name.`}
+          action={
+            <button
+              onClick={() => setSearch('')}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+            >
+              Clear Search
+            </button>
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {categories.map((c) => {
+          {filteredCategories.map((c) => {
             const catId = c._id || c.id;
             return (
               <div
