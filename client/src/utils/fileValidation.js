@@ -56,3 +56,31 @@ export const validateDocumentFile = (file) => {
   }
   return { valid: true, error: null };
 };
+
+/**
+ * Validate PDF file MIME type, extension, and size before upload
+ */
+export const validatePdfFile = (file) => {
+  if (!file) return { valid: false, error: 'No file selected.' };
+
+  const fileName = (file.name || '').toLowerCase();
+  const isPdfExtension = fileName.endsWith('.pdf');
+  const isPdfMime = !file.type || file.type === 'application/pdf' || file.type === 'application/x-pdf';
+
+  if (!isPdfExtension || !isPdfMime) {
+    return {
+      valid: false,
+      error: 'Only PDF files are allowed.'
+    };
+  }
+
+  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: 'File size exceeds the 10 MB limit. Please select a smaller file.'
+    };
+  }
+
+  return { valid: true, error: null };
+};
+

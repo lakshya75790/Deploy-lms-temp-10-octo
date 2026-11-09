@@ -1,13 +1,67 @@
 const { prisma, withId } = require('../config/prismaClient');
 const { emitToUser, emitToRoom } = require('../config/socket');
 
-const formatNotification = (n) => {
+const ACTIONABLE_NOTIFICATION_CONFIG = {
+  ASSIGNMENT_SUBMITTED: {
+    actionable_roles: ['Instructor'],
+    action_label: 'Evaluate Submission',
+    action_url: '/instructor/submissions'
+  },
+  ASSIGNMENT_REQUIRES_REVIEW: {
+    actionable_roles: ['Instructor'],
+    action_label: 'Evaluate Submission',
+    action_url: '/instructor/submissions'
+  },
+  TRAINING_OVERDUE: {
+    actionable_roles: ['Instructor'],
+    action_label: 'Manage Deadlines',
+    action_url: '/instructor/deadlines'
+  },
+  EMPLOYEE_TRAINING_OVERDUE: {
+    actionable_roles: ['Instructor'],
+    action_label: 'Manage Deadlines',
+    action_url: '/instructor/deadlines'
+  },
+  MULTIPLE_EMPLOYEES_OVERDUE: {
+    actionable_roles: ['Instructor'],
+    action_label: 'Manage Deadlines',
+    action_url: '/instructor/deadlines'
+  },
+  TRAINING_ASSIGNED: {
+    actionable_roles: ['Employee'],
+    action_label: 'Go to Training',
+    action_url: '/employee/my-trainings'
+  },
+  NEW_TRAINING_ASSIGNED: {
+    actionable_roles: ['Employee'],
+    action_label: 'Go to Training',
+    action_url: '/employee/my-trainings'
+  },
+  AUTO_ASSIGNED_TRAINING: {
+    actionable_roles: ['Employee'],
+    action_label: 'Go to Training',
+    action_url: '/employee/my-trainings'
+  }
+};
+
+const formatNotification = (n, options = null) => {
   if (!n) return null;
   const transformed = withId(n);
   transformed.relatedEntity = {
     entityType: n.relatedEntityType,
     entityId: n.relatedEntityId
   };
+
+  const config = ACTIONABLE_NOTIFICATION_CONFIG[n.type] || {};
+  const actionableRoles = options?.actionable_roles || options?.actionableRoles || config.actionable_roles || [];
+  const actionLabel = options?.action_label || options?.actionLabel || config.action_label || null;
+  const actionUrl = options?.action_url || options?.actionUrl || config.action_url || null;
+
+  transformed.actionable_roles = actionableRoles;
+  transformed.actionableRoles = actionableRoles;
+  transformed.action_label = actionLabel;
+  transformed.action_url = actionUrl;
+
   return transformed;
 };
 
@@ -70,7 +124,7 @@ const sendUserNotification = async (recipientId, organizationId, role, type, tit
       }
     });
 
-    const formatted = formatNotification(notification);
+    const formatted = formatNotification(notification, options);
 
     // Real-time emit to user room
     if (recId) {
@@ -148,7 +202,7 @@ const sendAdminNotification = async (organizationId, type, title, message, relat
           }
         });
 
-        const formatted = formatNotification(notification);
+        const formatted = formatNotification(notification, options);
         emitToUser(admin.id, 'new_notification', formatted);
       }
     }

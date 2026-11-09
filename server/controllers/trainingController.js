@@ -2,6 +2,7 @@ const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 const { deleteMediaAsset } = require('./mediaController');
+const { validateCourseTitle } = require('../utils/validators');
 
 /**
  * Helper to fetch a populated training record matching the Mongoose structure expected by frontend
@@ -100,7 +101,7 @@ const getPopulatedTraining = async (trainingId) => {
 /**
  * Helper to recalculate and update progress for all employees enrolled in a training after an edit
  */
-const reconcileTrainingProgress = async (trainingId) => {
+const reconcileTrainingProgress = async (trainingId, explicitHasAssignment) => {
   try {
     const trgId = String(trainingId);
 
@@ -126,7 +127,13 @@ const reconcileTrainingProgress = async (trainingId) => {
 
     const quizCount = training.quizzes?.length || 0;
     const assignmentCount = training.assignments?.length || 0;
-    const totalRequiredItems = validSubSectionIds.size + quizCount + assignmentCount;
+
+    // Determine whether this training has an assignment
+    const hasAssignment = typeof explicitHasAssignment === 'boolean'
+      ? explicitHasAssignment
+      : assignmentCount > 0;
+
+    const totalRequiredItems = validSubSectionIds.size + quizCount + (hasAssignment ? (assignmentCount > 0 ? assignmentCount : 1) : 0);
 
     const allProgressRecords = await prisma.trainingProgress.findMany({
       where: { trainingId: trgId }
@@ -158,7 +165,14 @@ const reconcileTrainingProgress = async (trainingId) => {
       let submittedAssignmentCount = 0;
       if (hasAssignment) {
         const submission = await prisma.assignmentSubmission.findFirst({
-          where: { trainingAssignmentId: progressRec.trainingAssignmentId }
+          where: {
+            OR: [
+              { trainingAssignmentId: progressRec.trainingAssignmentId },
+              ...(progressRec.employeeId && training.assignments?.length > 0
+                ? [{ employeeId: progressRec.employeeId, assignmentId: { in: training.assignments.map(a => a.id) } }]
+                : [])
+            ]
+          }
         });
         if (submission) submittedAssignmentCount = 1;
       }
@@ -217,6 +231,11 @@ const saveFullCourse = async (req, res, next) => {
 
     if (!title || !categoryId) {
       throw new ApiError(400, 'Training title and category are required');
+    }
+
+    const titleError = validateCourseTitle(title);
+    if (titleError) {
+      throw new ApiError(400, titleError);
     }
 
     const isPublished = status === 'published';
@@ -405,6 +424,7 @@ const saveFullCourse = async (req, res, next) => {
                 questionType: 'TRUE_FALSE',
                 options: ['True', 'False'],
                 correctAnswerIndex: idx,
+                correctAnswerIndices: [idx],
                 correctAnswerText: txt
               };
             } else if (qType === 'FILL_IN_BLANK') {
@@ -413,7 +433,26 @@ const saveFullCourse = async (req, res, next) => {
                 questionType: 'FILL_IN_BLANK',
                 options: [],
                 correctAnswerIndex: null,
+                correctAnswerIndices: [],
                 correctAnswerText: (q.correctAnswerText || '').trim()
+              };
+            } else if (qType === 'MSQ') {
+              const opts = Array.isArray(q.options) ? q.options : [];
+              let indices = [];
+              if (Array.isArray(q.correctAnswerIndices)) {
+                indices = q.correctAnswerIndices.map(Number).filter(n => !isNaN(n) && n >= 0 && n < opts.length);
+              } else if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+                indices = [Number(q.correctAnswerIndex)].filter(n => !isNaN(n) && n >= 0 && n < opts.length);
+              }
+              indices = Array.from(new Set(indices)).sort((a, b) => a - b);
+              const txt = indices.map(i => opts[i]).filter(Boolean).join(', ');
+              return {
+                questionText: q.questionText,
+                questionType: 'MSQ',
+                options: opts,
+                correctAnswerIndex: indices.length > 0 ? indices[0] : null,
+                correctAnswerIndices: indices,
+                correctAnswerText: txt
               };
             } else {
               const opts = Array.isArray(q.options) ? q.options : [];
@@ -424,6 +463,7 @@ const saveFullCourse = async (req, res, next) => {
                 questionType: 'MCQ',
                 options: opts,
                 correctAnswerIndex: idx,
+                correctAnswerIndices: [idx],
                 correctAnswerText: txt
               };
             }
@@ -502,6 +542,10 @@ const saveFullCourse = async (req, res, next) => {
               where: { subSectionId: targetResourceSubSec.id }
             });
             for (const r of resources) {
+              const resName = (r.originalName || r.name || r.title || '').toLowerCase();
+              if (resName.endsWith('.md') || resName.endsWith('.mf') || resName.endsWith('.exe') || resName.endsWith('.sh') || resName.endsWith('.js') || resName.endsWith('.html')) {
+                continue;
+              }
               await prisma.pdfResource.create({
                 data: {
                   subSectionId: targetResourceSubSec.id,
@@ -559,6 +603,7 @@ const saveFullCourse = async (req, res, next) => {
     }
 
     // Attach Assignment to the last subSection if provided
+    let hasAssignment = false;
     if (assignment && assignment.instructions) {
       const allSubSections = await prisma.trainingSubSection.findMany({
         where: { section: { trainingId: training.id } },
@@ -602,12 +647,34 @@ const saveFullCourse = async (req, res, next) => {
             data: { hasAssignment: true, assignmentId: newAssignment.id }
           });
         }
+        hasAssignment = true;
       }
+    } else if (assignment === undefined) {
+      // If assignment was omitted from payload, keep existing assignment status if any
+      const existingAssignment = await prisma.assignment.findFirst({
+        where: { trainingId: training.id }
+      });
+      hasAssignment = Boolean(existingAssignment);
+    } else {
+      // Assignment was explicitly removed or instructions were emptied
+      const existingAssignment = await prisma.assignment.findFirst({
+        where: { trainingId: training.id }
+      });
+      if (existingAssignment) {
+        await prisma.trainingSubSection.updateMany({
+          where: { section: { trainingId: training.id }, assignmentId: existingAssignment.id },
+          data: { hasAssignment: false, assignmentId: null }
+        }).catch(() => {});
+        await prisma.assignment.delete({
+          where: { id: existingAssignment.id }
+        }).catch(() => {});
+      }
+      hasAssignment = false;
     }
 
     // Reconcile employee progress & training assignments
     if (trainingId) {
-      await reconcileTrainingProgress(training.id);
+      await reconcileTrainingProgress(training.id, hasAssignment);
     }
 
     const populatedTraining = await getPopulatedTraining(training.id);
@@ -708,6 +775,11 @@ const createTraining = async (req, res, next) => {
 
     if (!title || !description || !categoryId) {
       throw new ApiError(400, 'Please provide title, description, and categoryId');
+    }
+
+    const titleError = validateCourseTitle(title);
+    if (titleError) {
+      throw new ApiError(400, titleError);
     }
 
     const catId = String(categoryId);
@@ -873,7 +945,13 @@ const updateTraining = async (req, res, next) => {
     const { title, description, benefits, categoryId, departmentId, durationDays, isMandatory, isPublished, status, thumbnailUrl, thumbnailPublicId } = req.body;
 
     const updateData = {};
-    if (title) updateData.title = title.trim();
+    if (title !== undefined) {
+      const titleError = validateCourseTitle(title);
+      if (titleError) {
+        throw new ApiError(400, titleError);
+      }
+      updateData.title = title.trim();
+    }
     if (description) updateData.description = description.trim();
     if (benefits) updateData.benefits = Array.isArray(benefits) ? benefits : [];
     if (categoryId) updateData.categoryId = String(categoryId);

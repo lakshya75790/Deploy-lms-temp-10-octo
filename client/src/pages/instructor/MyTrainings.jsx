@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { getTrainings, updateTraining, deleteTraining } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
+import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { useNotification } from '../../context/NotificationContext';
-import { BookOpen, Plus, Edit3, Trash2, Layers, CheckCircle2, FileCode, RefreshCw } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Layers, CheckCircle2, FileCode, RefreshCw } from 'lucide-react';
 
 export const MyTrainings = () => {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export const MyTrainings = () => {
   const [trainings, setTrainings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
+  const [courseToDelete, setCourseToDelete] = useState(null);
 
   const fetchData = async () => {
     try {
@@ -52,14 +54,18 @@ export const MyTrainings = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (processingId === id) return;
-    if (!window.confirm('Are you sure you want to delete this training course?')) return;
-    setProcessingId(id);
+  const handleDelete = (t) => {
+    setCourseToDelete(t);
+  };
+
+  const confirmDelete = async () => {
+    if (!courseToDelete || processingId === courseToDelete._id) return;
+    setProcessingId(courseToDelete._id);
     try {
-      await deleteTraining(id);
+      await deleteTraining(courseToDelete._id);
       addToast('success', 'Training course deleted');
-      setTrainings(prev => prev.filter(item => item._id !== id));
+      setTrainings(prev => prev.filter(item => item._id !== courseToDelete._id));
+      setCourseToDelete(null);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to delete training');
     } finally {
@@ -171,15 +177,10 @@ export const MyTrainings = () => {
                     )}
                   </button>
                   <button
-                    onClick={() => navigate(`/instructor/course-builder/${t._id}`)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(t._id)}
+                    onClick={() => handleDelete(t)}
                     disabled={processingId === t._id}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer disabled:opacity-50"
+                    title="Delete Course"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -189,6 +190,18 @@ export const MyTrainings = () => {
           ))}
         </div>
       )}
+
+      {/* Course Deletion Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={Boolean(courseToDelete)}
+        onClose={() => setCourseToDelete(null)}
+        onConfirm={confirmDelete}
+        title="Delete Training Course"
+        message={`Are you sure you want to delete "${courseToDelete?.title || 'this training'}"? This action cannot be undone.`}
+        confirmText="Delete Course"
+        loading={processingId === courseToDelete?._id}
+        closeOnBackdropClick={false}
+      />
     </div>
   );
 };

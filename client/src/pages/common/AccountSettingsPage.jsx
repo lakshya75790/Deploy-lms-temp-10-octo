@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { updateProfile, updateProfilePicture, resetProfilePicture, changePassword } from '../../services/api';
@@ -12,9 +12,12 @@ import {
   Check,
   Eye,
   EyeOff,
-  ShieldCheck
+  ShieldCheck,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { validateImageFile } from '../../utils/fileValidation';
+import { validatePassword, evaluatePasswordStrength } from '../../utils/userValidation';
 
 export const AccountSettingsPage = () => {
   const { user, setUser } = useAuth();
@@ -38,6 +41,15 @@ export const AccountSettingsPage = () => {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+
+  const passwordStrength = useMemo(() => {
+    return evaluatePasswordStrength(newPassword, { name: user?.name, email: user?.email });
+  }, [newPassword, user?.name, user?.email]);
 
   // Synchronize state when user loads or updates
   useEffect(() => {
@@ -157,6 +169,12 @@ export const AccountSettingsPage = () => {
 
       // 3. Update text details (Name)
       if (isNameChanged) {
+        const nameErr = validateName(name);
+        if (nameErr) {
+          addToast('error', nameErr);
+          setSavingProfile(false);
+          return;
+        }
         const profileData = { name: name.trim() };
         const profileRes = await updateProfile(profileData);
         if (profileRes?.data?.data?.user) {
@@ -180,38 +198,71 @@ export const AccountSettingsPage = () => {
   const handlePasswordSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
 
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      addToast('error', 'Please fill in all password fields.');
-      return;
+    const errors = {};
+
+    if (!currentPassword || currentPassword.trim() === '') {
+      errors.currentPassword = 'Current password is required';
     }
 
-    if (currentPassword === newPassword) {
-      addToast('error', 'New password must be different from your current password.');
-      return;
+    if (!newPassword || newPassword.trim() === '') {
+      errors.newPassword = 'New password is required';
+    } else {
+      const pwdErr = validatePassword(newPassword, { name: user?.name, email: user?.email });
+      if (pwdErr) {
+        errors.newPassword = pwdErr;
+      } else if (currentPassword && currentPassword === newPassword) {
+        errors.newPassword = 'New password must be different from your current password.';
+      }
     }
 
-    if (newPassword !== confirmPassword) {
-      addToast('error', 'New passwords do not match.');
-      return;
+    if (!confirmPassword || confirmPassword.trim() === '') {
+      errors.confirmPassword = 'Confirm password is required';
+    } else if (newPassword && newPassword !== confirmPassword) {
+      errors.confirmPassword = 'New passwords do not match.';
     }
 
-    if (newPassword.length < 6) {
-      addToast('error', 'New password must be at least 6 characters long.');
-      return;
+    if (Object.keys(errors).length > 0) {
+      setPasswordFieldErrors(errors);
+      addToast('error', Object.values(errors)[0]);
+      return; // Preserve entered values on failure
     }
 
     setSavingPassword(true);
     try {
-      await changePassword({ currentPassword, newPassword });
+      await changePassword({ currentPassword, newPassword, confirmPassword });
       addToast('success', 'Password updated successfully!');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setPasswordFieldErrors({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setShowCurrentPass(false);
       setShowNewPass(false);
       setShowConfirmPass(false);
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to update password.');
+      const serverErrors = err.response?.data?.errors;
+      const serverMsg = err.response?.data?.message || 'Failed to update password.';
+
+      const mapped = {};
+      if (Array.isArray(serverErrors) && serverErrors.length > 0) {
+        serverErrors.forEach((item) => {
+          if (item.field) {
+            mapped[item.field] = item.message;
+          }
+        });
+      } else if (typeof serverMsg === 'string') {
+        const lower = serverMsg.toLowerCase();
+        if (lower.includes('current password')) {
+          mapped.currentPassword = serverMsg;
+        } else if (lower.includes('match') || lower.includes('confirm')) {
+          mapped.confirmPassword = serverMsg;
+        } else if (lower.includes('different') || lower.includes('password')) {
+          mapped.newPassword = serverMsg;
+        }
+      }
+
+      setPasswordFieldErrors((prev) => ({ ...prev, ...mapped }));
+      addToast('error', serverMsg);
+      // Strictly preserve entered values on failure - fields are NOT cleared
     } finally {
       setSavingPassword(false);
     }
@@ -320,6 +371,7 @@ export const AccountSettingsPage = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
+                  maxLength={100}
                   placeholder="Enter your full name"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
                 />
@@ -376,9 +428,18 @@ export const AccountSettingsPage = () => {
               <input
                 type={showCurrentPass ? 'text' : 'password'}
                 value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                  if (passwordFieldErrors.currentPassword) {
+                    setPasswordFieldErrors((prev) => ({ ...prev, currentPassword: '' }));
+                  }
+                }}
                 placeholder="Current password"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className={`w-full pl-10 pr-10 py-2.5 rounded-xl border bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
+                  passwordFieldErrors.currentPassword
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
               <button
                 type="button"
@@ -389,6 +450,12 @@ export const AccountSettingsPage = () => {
                 {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {passwordFieldErrors.currentPassword && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {passwordFieldErrors.currentPassword}
+              </p>
+            )}
           </div>
 
           {/* New Password */}
@@ -401,9 +468,18 @@ export const AccountSettingsPage = () => {
               <input
                 type={showNewPass ? 'text' : 'password'}
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 6 characters"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  if (passwordFieldErrors.newPassword) {
+                    setPasswordFieldErrors((prev) => ({ ...prev, newPassword: '' }));
+                  }
+                }}
+                placeholder="Min. 8 characters"
+                className={`w-full pl-10 pr-10 py-2.5 rounded-xl border bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
+                  passwordFieldErrors.newPassword
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
               <button
                 type="button"
@@ -414,6 +490,12 @@ export const AccountSettingsPage = () => {
                 {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {passwordFieldErrors.newPassword && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {passwordFieldErrors.newPassword}
+              </p>
+            )}
           </div>
 
           {/* Confirm New Password */}
@@ -426,9 +508,18 @@ export const AccountSettingsPage = () => {
               <input
                 type={showConfirmPass ? 'text' : 'password'}
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (passwordFieldErrors.confirmPassword) {
+                    setPasswordFieldErrors((prev) => ({ ...prev, confirmPassword: '' }));
+                  }
+                }}
                 placeholder="Re-enter password"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className={`w-full pl-10 pr-10 py-2.5 rounded-xl border bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
+                  passwordFieldErrors.confirmPassword
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
               <button
                 type="button"
@@ -439,8 +530,79 @@ export const AccountSettingsPage = () => {
                 {showConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {passwordFieldErrors.confirmPassword && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {passwordFieldErrors.confirmPassword}
+              </p>
+            )}
           </div>
         </div>
+
+        {/* Real-time Password Strength Meter & Requirements Breakdown */}
+        {newPassword.length > 0 && (
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-600 font-semibold">New Password Strength:</span>
+              <span
+                className={`font-bold ${
+                  passwordStrength.score <= 1
+                    ? 'text-rose-600'
+                    : passwordStrength.score === 2
+                    ? 'text-amber-600'
+                    : passwordStrength.score === 3
+                    ? 'text-teal-600'
+                    : 'text-emerald-600'
+                }`}
+              >
+                {passwordStrength.label}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5 h-2 w-full bg-slate-200/70 rounded-full overflow-hidden p-0.5">
+              {[1, 2, 3, 4].map((step) => (
+                <div
+                  key={step}
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    passwordStrength.score >= step
+                      ? passwordStrength.score <= 1
+                        ? 'bg-rose-500'
+                        : passwordStrength.score === 2
+                        ? 'bg-amber-500'
+                        : passwordStrength.score === 3
+                        ? 'bg-teal-500'
+                        : 'bg-emerald-500'
+                      : 'bg-slate-200'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <div className="pt-2 border-t border-slate-200/60">
+              <div className="font-semibold text-slate-700 text-xs mb-1.5 flex items-center justify-between">
+                <span>Security Policy Checklist</span>
+                <span className="text-[10px] text-slate-400 font-normal">Min. 8 characters & complex</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
+                {passwordStrength.requirements.map((req) => (
+                  <div
+                    key={req.id}
+                    className={`flex items-center gap-1.5 transition-colors ${
+                      req.met ? 'text-emerald-700 font-semibold' : 'text-slate-500'
+                    }`}
+                  >
+                    {req.met ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    ) : (
+                      <div className="w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0" />
+                    )}
+                    <span>{req.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Update Password Button Aligned to Bottom-Right */}
         <div className="pt-4 border-t border-slate-100 flex justify-end">

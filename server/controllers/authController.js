@@ -15,6 +15,7 @@ const {
 } = require('../services/trainingAssignmentService');
 const { logAuditAction } = require('../services/auditLogService');
 const { getCloudinary } = require('../config/cloudinary');
+const { validatePassword, validateName } = require('../utils/validators');
 
 const getDefaultDiceBearAvatar = (name) => {
   return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name || 'User')}`;
@@ -44,6 +45,11 @@ const setupOrganization = async (req, res, next) => {
 
     if (!orgName || !adminName || !adminEmail || !adminPassword) {
       throw new ApiError(400, 'Please provide all required fields (orgName, adminName, adminEmail, adminPassword)');
+    }
+
+    const nameError = validateName(adminName);
+    if (nameError) {
+      throw new ApiError(400, nameError, [{ field: 'adminName', message: nameError }]);
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -119,6 +125,11 @@ const registerEmployee = async (req, res, next) => {
 
     if (!name || !email || !password || !orgCode) {
       throw new ApiError(400, 'Please provide name, email, password, and organization code');
+    }
+
+    const nameError = validateName(name);
+    if (nameError) {
+      throw new ApiError(400, nameError, [{ field: 'name', message: nameError }]);
     }
 
     const organization = await prisma.organization.findUnique({
@@ -388,8 +399,9 @@ const updateMyProfile = async (req, res, next) => {
     const updateData = {};
 
     if (name) {
-      if (!name.trim()) {
-        throw new ApiError(400, 'Name cannot be empty');
+      const nameError = validateName(name);
+      if (nameError) {
+        throw new ApiError(400, nameError, [{ field: 'name', message: nameError }]);
       }
       updateData.name = name.trim();
       if (!user.isCustomAvatar) {
@@ -451,24 +463,30 @@ const updateMyProfile = async (req, res, next) => {
  */
 const changePassword = async (req, res, next) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, confirmPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      throw new ApiError(400, 'Please provide both currentPassword and newPassword');
+    const errors = [];
+    if (!currentPassword || typeof currentPassword !== 'string' || currentPassword.trim() === '') {
+      errors.push({ field: 'currentPassword', message: 'Current password is required' });
+    }
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim() === '') {
+      errors.push({ field: 'newPassword', message: 'New password is required' });
+    }
+    if (confirmPassword !== undefined && confirmPassword !== null && confirmPassword !== '' && newPassword !== confirmPassword) {
+      errors.push({ field: 'confirmPassword', message: 'New passwords do not match' });
+    }
+
+    if (errors.length > 0) {
+      throw new ApiError(400, errors[0].message, errors);
     }
 
     if (currentPassword === newPassword) {
-      throw new ApiError(400, 'New password must be different from your current password.');
-    }
-
-    if (newPassword.length < 6) {
-      throw new ApiError(400, 'New password must be at least 6 characters long');
+      throw new ApiError(400, 'New password must be different from your current password.', [
+        { field: 'newPassword', message: 'New password must be different from your current password.' }
+      ]);
     }
 
     const userId = String(req.user.id || req.user._id);
-
-    // Parallelize CPU-intensive hashing while querying DB with selective projection
-    const hashPromise = bcrypt.hash(newPassword, 10);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -476,6 +494,7 @@ const changePassword = async (req, res, next) => {
         id: true,
         password: true,
         name: true,
+        email: true,
         role: true,
         organizationId: true
       }
@@ -487,10 +506,19 @@ const changePassword = async (req, res, next) => {
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      throw new ApiError(400, 'Current password is incorrect');
+      throw new ApiError(400, 'Current password is incorrect', [
+        { field: 'currentPassword', message: 'Current password is incorrect' }
+      ]);
     }
 
-    const hashedPassword = await hashPromise;
+    const passwordError = validatePassword(newPassword, { name: user.name, email: user.email });
+    if (passwordError) {
+      throw new ApiError(400, passwordError, [
+        { field: 'newPassword', message: passwordError }
+      ]);
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
       where: { id: user.id },

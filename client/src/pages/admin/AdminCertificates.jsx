@@ -40,66 +40,7 @@ import {
   AlignCenter,
   AlignRight
 } from 'lucide-react';
-
-/**
- * Helper to automatically make signature image background transparent (client-side HTML canvas processing)
- */
-const processTransparentSignature = (file) => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-
-        try {
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imgData.data;
-
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-
-            const minChannel = Math.min(r, g, b);
-            if (minChannel > 200) {
-              const brightness = (r + g + b) / 3;
-              if (brightness > 240) {
-                data[i + 3] = 0; // Fully transparent
-              } else if (brightness > 200) {
-                const alpha = Math.floor((240 - brightness) / 40 * 255);
-                data[i + 3] = Math.min(data[i + 3], alpha);
-              }
-            }
-          }
-
-          ctx.putImageData(imgData, 0, 0);
-          canvas.toBlob((blob) => {
-            if (blob) {
-              const processedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '') + '_transparent.png', {
-                type: 'image/png'
-              });
-              resolve(processedFile);
-            } else {
-              resolve(file);
-            }
-          }, 'image/png');
-        } catch (err) {
-          console.warn('Transparent signature canvas processing fallback:', err);
-          resolve(file);
-        }
-      };
-      img.onerror = () => resolve(file);
-      img.src = e.target.result;
-    };
-    reader.onerror = () => resolve(file);
-    reader.readAsDataURL(file);
-  });
-};
+import { processTransparentSignature } from '../../utils/signatureProcessor';
 
 export const AdminCertificates = () => {
   const { user } = useAuth();
@@ -720,7 +661,7 @@ export const AdminCertificates = () => {
                         <span className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700 mt-1">
                           {uploadingSignature ? 'Processing Transparency...' : 'Click to Upload Signature Image'}
                         </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">White paper background automatically removed</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">Paper background automatically removed (white, colored & patterned)</span>
                         <input type="file" accept="image/*" onChange={handleSignatureUpload} disabled={uploadingSignature} className="hidden" />
                       </label>
                     )}

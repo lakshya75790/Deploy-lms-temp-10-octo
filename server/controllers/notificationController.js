@@ -1,16 +1,7 @@
 const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
-
-const formatNotification = (n) => {
-  if (!n) return null;
-  const transformed = withId(n);
-  transformed.relatedEntity = {
-    entityType: n.relatedEntityType,
-    entityId: n.relatedEntityId
-  };
-  return transformed;
-};
+const { formatNotification } = require('../services/notificationService');
 
 /**
  * @desc    Get Notifications for Logged-In User

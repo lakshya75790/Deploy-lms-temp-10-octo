@@ -1063,7 +1063,7 @@ const getMyReport = async (req, res, next) => {
 
         if (ans.isCorrect === true) {
           status = 'correct';
-        } else if (selOptIdx === null || selOptIdx === undefined || selOptIdx < 0) {
+        } else if ((selOptIdx === null || selOptIdx === undefined || selOptIdx < 0) && (!ans.selectedOptionIndices || ans.selectedOptionIndices.length === 0)) {
           if (!selAnsText && (!opts || opts.length === 0)) {
             status = 'data_unavailable';
             dataUnavailable = true;
@@ -1077,9 +1077,12 @@ const getMyReport = async (req, res, next) => {
         return {
           questionIndex: qIdx,
           questionText: qText,
+          questionType: ans.questionType || qInQuiz?.questionType || 'MCQ',
           selectedOptionIndex: selOptIdx,
+          selectedOptionIndices: ans.selectedOptionIndices || [],
           selectedAnswerText: selAnsText,
           correctAnswerIndex: corrAnsIdx,
+          correctAnswerIndices: ans.correctAnswerIndices || qInQuiz?.correctAnswerIndices || [],
           correctAnswerText: corrAnsText,
           options: opts,
           isCorrect: Boolean(ans.isCorrect),

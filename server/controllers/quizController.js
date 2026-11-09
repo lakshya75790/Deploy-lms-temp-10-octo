@@ -55,6 +55,7 @@ const mapQuestionData = (q) => {
       questionType: 'TRUE_FALSE',
       options: ['True', 'False'],
       correctAnswerIndex: idx,
+      correctAnswerIndices: [idx],
       correctAnswerText: txt
     };
   } else if (qType === 'FILL_IN_BLANK') {
@@ -63,7 +64,26 @@ const mapQuestionData = (q) => {
       questionType: 'FILL_IN_BLANK',
       options: [],
       correctAnswerIndex: null,
+      correctAnswerIndices: [],
       correctAnswerText: (q.correctAnswerText || '').trim()
+    };
+  } else if (qType === 'MSQ') {
+    const opts = Array.isArray(q.options) ? q.options : [];
+    let indices = [];
+    if (Array.isArray(q.correctAnswerIndices)) {
+      indices = q.correctAnswerIndices.map(Number).filter(n => !isNaN(n) && n >= 0 && n < opts.length);
+    } else if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+      indices = [Number(q.correctAnswerIndex)].filter(n => !isNaN(n) && n >= 0 && n < opts.length);
+    }
+    indices = Array.from(new Set(indices)).sort((a, b) => a - b);
+    const txt = indices.map(i => opts[i]).filter(Boolean).join(', ');
+    return {
+      questionText: q.questionText,
+      questionType: 'MSQ',
+      options: opts,
+      correctAnswerIndex: indices.length > 0 ? indices[0] : null,
+      correctAnswerIndices: indices,
+      correctAnswerText: txt
     };
   } else {
     // MCQ
@@ -75,6 +95,7 @@ const mapQuestionData = (q) => {
       questionType: 'MCQ',
       options: opts,
       correctAnswerIndex: idx,
+      correctAnswerIndices: [idx],
       correctAnswerText: txt
     };
   }
@@ -189,7 +210,7 @@ const getQuizById = async (req, res, next) => {
     // Mask correct answers if employee is attempting the quiz
     if (req.user.role === 'Employee') {
       quizObj.questions = quizObj.questions.map(q => {
-        const { correctAnswerIndex, correctAnswerText, ...rest } = q;
+        const { correctAnswerIndex, correctAnswerIndices, correctAnswerText, ...rest } = q;
         return rest;
       });
     }
@@ -444,8 +465,12 @@ const submitQuiz = async (req, res, next) => {
 
       let isCorrect = false;
       let selectedOptionIndex = null;
+      let selectedOptionIndices = [];
       let selectedAnswerText = '';
       let correctAnswerIndex = q.correctAnswerIndex;
+      let correctAnswerIndices = Array.isArray(q.correctAnswerIndices) && q.correctAnswerIndices.length > 0
+        ? [...q.correctAnswerIndices]
+        : (q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? [Number(q.correctAnswerIndex)] : []);
       let correctAnswerText = q.correctAnswerText || '';
 
       if (qType === 'TRUE_FALSE') {
@@ -461,20 +486,24 @@ const submitQuiz = async (req, res, next) => {
 
         if (selectedOptionIndex !== null && selectedOptionIndex >= 0 && selectedOptionIndex <= 1) {
           selectedAnswerText = selectedOptionIndex === 0 ? 'True' : 'False';
+          selectedOptionIndices = [selectedOptionIndex];
         } else if (userAns && userAns.selectedAnswerText !== undefined && userAns.selectedAnswerText !== null) {
           const textVal = String(userAns.selectedAnswerText).trim().toLowerCase();
           if (textVal === 'true') {
             selectedOptionIndex = 0;
             selectedAnswerText = 'True';
+            selectedOptionIndices = [0];
           } else if (textVal === 'false') {
             selectedOptionIndex = 1;
             selectedAnswerText = 'False';
+            selectedOptionIndices = [1];
           } else {
             selectedAnswerText = String(userAns.selectedAnswerText).trim();
           }
         }
 
         correctAnswerIndex = q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? q.correctAnswerIndex : 0;
+        correctAnswerIndices = [correctAnswerIndex];
         correctAnswerText = correctAnswerText || (correctAnswerIndex === 0 ? 'True' : 'False');
 
         isCorrect = selectedOptionIndex !== null && selectedOptionIndex === correctAnswerIndex;
@@ -489,7 +518,39 @@ const submitQuiz = async (req, res, next) => {
 
         isCorrect = Boolean(normUser && normCorrect && normUser === normCorrect);
         selectedOptionIndex = null;
+        selectedOptionIndices = [];
         correctAnswerIndex = null;
+        correctAnswerIndices = [];
+
+      } else if (qType === 'MSQ') {
+        let userIndices = [];
+        if (Array.isArray(userAns?.selectedOptionIndices)) {
+          userIndices = userAns.selectedOptionIndices.map(Number).filter(n => !isNaN(n) && n >= 0 && n < (q.options ? q.options.length : 0));
+        } else if (Array.isArray(userAns?.selectedOptionIdxs)) {
+          userIndices = userAns.selectedOptionIdxs.map(Number).filter(n => !isNaN(n) && n >= 0 && n < (q.options ? q.options.length : 0));
+        } else if (userAns?.selectedOptionIndex !== undefined && userAns?.selectedOptionIndex !== null) {
+          userIndices = [Number(userAns.selectedOptionIndex)].filter(n => !isNaN(n) && n >= 0 && n < (q.options ? q.options.length : 0));
+        }
+        userIndices = Array.from(new Set(userIndices)).sort((a, b) => a - b);
+        selectedOptionIndices = userIndices;
+        selectedOptionIndex = userIndices.length > 0 ? userIndices[0] : null;
+
+        const selectedTexts = userIndices.map(i => q.options?.[i]).filter(Boolean);
+        selectedAnswerText = selectedTexts.join(', ');
+
+        const correctIndices = (Array.isArray(q.correctAnswerIndices) && q.correctAnswerIndices.length > 0)
+          ? [...q.correctAnswerIndices].sort((a, b) => a - b)
+          : (q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? [Number(q.correctAnswerIndex)] : []);
+        correctAnswerIndices = correctIndices;
+        correctAnswerIndex = correctIndices.length > 0 ? correctIndices[0] : null;
+        correctAnswerText = correctAnswerText || correctIndices.map(i => q.options?.[i]).filter(Boolean).join(', ');
+
+        // Strict grading for MSQ: User must select all correct options and NO incorrect options
+        if (correctIndices.length > 0 && userIndices.length === correctIndices.length) {
+          isCorrect = userIndices.every((val, i) => val === correctIndices[i]);
+        } else {
+          isCorrect = false;
+        }
 
       } else {
         // MCQ
@@ -503,11 +564,15 @@ const submitQuiz = async (req, res, next) => {
           ? Number(rawOpt)
           : null;
 
+        selectedOptionIndices = selectedOptionIndex !== null ? [selectedOptionIndex] : [];
+
         const hasSelected = selectedOptionIndex !== null && selectedOptionIndex >= 0 && selectedOptionIndex < (q.options ? q.options.length : 0);
         selectedAnswerText = hasSelected ? (q.options[selectedOptionIndex] || '') : (userAns?.selectedAnswerText || '');
-        correctAnswerText = correctAnswerText || (q.options && q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? q.options[q.correctAnswerIndex] : '');
+        correctAnswerIndex = q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? Number(q.correctAnswerIndex) : 0;
+        correctAnswerIndices = [correctAnswerIndex];
+        correctAnswerText = correctAnswerText || (q.options && q.options[correctAnswerIndex] ? q.options[correctAnswerIndex] : '');
 
-        isCorrect = hasSelected && selectedOptionIndex === q.correctAnswerIndex;
+        isCorrect = hasSelected && selectedOptionIndex === correctAnswerIndex;
       }
 
       if (isCorrect) {
@@ -519,8 +584,10 @@ const submitQuiz = async (req, res, next) => {
         questionText: q.questionText || `Question ${idx + 1}`,
         questionType: qType,
         selectedOptionIndex,
+        selectedOptionIndices,
         selectedAnswerText,
         correctAnswerIndex,
+        correctAnswerIndices,
         correctAnswerText,
         options: q.options || [],
         isCorrect

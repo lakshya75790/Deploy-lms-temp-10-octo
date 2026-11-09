@@ -256,6 +256,7 @@ model Quiz {
 
 enum QuestionType {
   MCQ
+  MSQ
   TRUE_FALSE
   FILL_IN_BLANK
 }
@@ -267,6 +268,7 @@ model QuizQuestion {
   questionType       QuestionType @default(MCQ)
   options            String[]
   correctAnswerIndex Int?
+  correctAnswerIndices Int[]     @default([])
   correctAnswerText  String?
   explanation        String?
   createdAt          DateTime     @default(now())
@@ -312,8 +314,10 @@ model QuizAttemptAnswer {
   questionText        String
   questionType        QuestionType? @default(MCQ)
   selectedOptionIndex Int?
+  selectedOptionIndices Int[]       @default([])
   selectedAnswerText  String?
   correctAnswerIndex  Int?
+  correctAnswerIndices Int[]        @default([])
   correctAnswerText   String?
   options             String[]
   isCorrect           Boolean

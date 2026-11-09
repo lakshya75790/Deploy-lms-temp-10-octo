@@ -25,6 +25,23 @@
   }
 }
 
+/* Hide Microsoft Edge native password reveal and clear controls to prevent duplicate eye icons */
+::-ms-reveal {
+  display: none;
+}
+
+::-ms-clear {
+  display: none;
+}
+
+input::-ms-reveal {
+  display: none;
+}
+
+input::-ms-clear {
+  display: none;
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

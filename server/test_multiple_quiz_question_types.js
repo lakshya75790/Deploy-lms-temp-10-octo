@@ -154,8 +154,8 @@ async function runTest() {
       if (trgRes.statusCode !== 201) throw new Error(`Training creation failed: ${JSON.stringify(trgRes.body)}`);
       const trainingId = trgRes.body.data.training._id;
 
-      // 5. Instructor creates Quiz with all 3 question types (MCQ, True/False, Fill in the Blank)
-      console.log('\n5. Instructor creating Quiz with MCQ, True/False, and Fill in the Blank questions...');
+      // 5. Instructor creates Quiz with all 4 question types (MCQ, MSQ, True/False, Fill in the Blank)
+      console.log('\n5. Instructor creating Quiz with MCQ, MSQ, True/False, and Fill in the Blank questions...');
       const createQuizRes = await makeRequest(server, {
         method: 'POST',
         path: '/api/quizzes',
@@ -171,6 +171,12 @@ async function runTest() {
               questionText: 'What is the primary capital of France?',
               options: ['Berlin', 'Madrid', 'Paris', 'Rome'],
               correctAnswerIndex: 2
+            },
+            {
+              questionType: 'MSQ',
+              questionText: 'Which of the following are JavaScript frameworks or libraries?',
+              options: ['React', 'PostgreSQL', 'Vue', 'Docker'],
+              correctAnswerIndices: [0, 2]
             },
             {
               questionType: 'TRUE_FALSE',
@@ -196,7 +202,7 @@ async function runTest() {
 
       const quiz = createQuizRes.body.data.quiz;
       console.log(`   Quiz created successfully with ID: ${quiz._id}`);
-      console.log(`   Questions created:`, quiz.questions.map(q => ({ text: q.questionText, type: q.questionType, options: q.options, correctIdx: q.correctAnswerIndex, correctText: q.correctAnswerText })));
+      console.log(`   Questions created:`, quiz.questions.map(q => ({ text: q.questionText, type: q.questionType, options: q.options, correctIdx: q.correctAnswerIndex, correctIndices: q.correctAnswerIndices, correctText: q.correctAnswerText })));
 
       // 6. Employee fetches quiz & start attempt (verifying correct answer masking)
       console.log('\n6. Employee fetching Quiz (verifying masking)...');
@@ -209,8 +215,8 @@ async function runTest() {
       const empQuiz = getQuizRes.body.data.quiz;
       console.log('   Employee fetched quiz questions correctly masked:');
       empQuiz.questions.forEach((q, i) => {
-        console.log(`   Q${i+1} (${q.questionType}): "${q.questionText}" | correctAnswerIndex: ${q.correctAnswerIndex} | correctAnswerText: ${q.correctAnswerText}`);
-        if (q.correctAnswerIndex !== undefined || q.correctAnswerText !== undefined) {
+        console.log(`   Q${i+1} (${q.questionType}): "${q.questionText}" | correctAnswerIndex: ${q.correctAnswerIndex} | correctAnswerIndices: ${q.correctAnswerIndices} | correctAnswerText: ${q.correctAnswerText}`);
+        if (q.correctAnswerIndex !== undefined || q.correctAnswerIndices !== undefined || q.correctAnswerText !== undefined) {
           throw new Error(`SECURITY FAIL: Correct answer leaked to employee on Q${i+1}!`);
         }
       });
@@ -226,8 +232,8 @@ async function runTest() {
       console.log('   Start Quiz status:', startRes.statusCode);
       const attemptId = startRes.body.data.attempt._id;
 
-      // 7. Employee submits answers for all 3 types (Testing correct evaluation)
-      console.log('\n8. Employee submitting answers (all 3 correct)...');
+      // 7. Employee submits answers for all 4 types (Testing correct evaluation)
+      console.log('\n8. Employee submitting answers (all 4 correct)...');
       // Testing case-insensitivity & whitespace trimming for Fill in the Blank ("  traNsfer  ")
       const submitRes = await makeRequest(server, {
         method: 'POST',
@@ -237,8 +243,9 @@ async function runTest() {
           attemptId,
           userAnswers: [
             { questionIndex: 0, selectedOptionIndex: 2 }, // MCQ: Paris
-            { questionIndex: 1, selectedOptionIndex: 0 }, // True/False: True (index 0)
-            { questionIndex: 2, selectedAnswerText: '  traNsfer  ' } // Fill in Blank: "transfer"
+            { questionIndex: 1, selectedOptionIndices: [0, 2] }, // MSQ: React, Vue
+            { questionIndex: 2, selectedOptionIndex: 0 }, // True/False: True (index 0)
+            { questionIndex: 3, selectedAnswerText: '  traNsfer  ' } // Fill in Blank: "transfer"
           ]
         }
       });
@@ -259,7 +266,7 @@ async function runTest() {
         }
       });
 
-      // 8. Test incorrect answers evaluation
+      // 8. Test incorrect answers evaluation (including partial MSQ)
       console.log('\n9. Testing retake & wrong answers evaluation...');
       const start2Res = await makeRequest(server, {
         method: 'POST',
@@ -277,8 +284,9 @@ async function runTest() {
           attemptId: attempt2Id,
           userAnswers: [
             { questionIndex: 0, selectedOptionIndex: 0 }, // MCQ: Berlin (Incorrect)
-            { questionIndex: 1, selectedOptionIndex: 1 }, // True/False: False (Incorrect)
-            { questionIndex: 2, selectedAnswerText: 'WrongAnswer' } // Fill in Blank: Wrong (Incorrect)
+            { questionIndex: 1, selectedOptionIndices: [0] }, // MSQ: Partial answer (Only React, missing Vue -> Incorrect)
+            { questionIndex: 2, selectedOptionIndex: 1 }, // True/False: False (Incorrect)
+            { questionIndex: 3, selectedAnswerText: 'WrongAnswer' } // Fill in Blank: Wrong (Incorrect)
           ]
         }
       });

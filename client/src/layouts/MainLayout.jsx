@@ -24,7 +24,7 @@ export const MainLayout = () => {
           <Navbar onToggleMobileSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)} />
         )}
 
-        <main className={`flex-1 w-full max-w-7xl mx-auto min-w-0 ${isFocusMode ? 'max-w-none p-0' : 'p-3 xs:p-4 sm:p-6 lg:p-8'}`}>
+        <main className={`flex-1 w-full max-w-7xl 2xl:max-w-[1600px] mx-auto min-w-0 ${isFocusMode ? 'max-w-none p-0' : 'p-3 xs:p-4 sm:p-6 lg:p-8'}`}>
           <Outlet />
         </main>
       </div>

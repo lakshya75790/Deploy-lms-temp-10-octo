@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { ConfirmationModal } from './ConfirmationModal';
 import {
   LayoutDashboard,
   Building2,
@@ -26,6 +27,21 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
   const { user, logout } = useAuth();
   const [shouldRender, setShouldRender] = useState(mobileOpen);
   const [isAnimatedIn, setIsAnimatedIn] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleConfirmLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutModal(false);
+    }
+  };
 
   useEffect(() => {
     if (mobileOpen) {
@@ -153,7 +169,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
         <button
           onClick={() => {
             onCloseMobile();
-            logout();
+            setShowLogoutModal(true);
           }}
           className="w-full flex items-center justify-start px-3.5 py-2.5 rounded-xl text-xs font-semibold text-white bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 transition-all cursor-pointer shadow-xs"
         >
@@ -189,6 +205,22 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
           </div>
         </div>
       )}
+
+      {/* Logout Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showLogoutModal}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
+        onConfirm={handleConfirmLogout}
+        title="Confirm Logout"
+        message="Are you sure you want to log out?"
+        confirmText="Logout"
+        cancelText="Cancel"
+        variant="danger"
+        icon={LogOut}
+        loading={isLoggingOut}
+        closeOnBackdropClick={false}
+        closeOnEscape={false}
+      />
     </>
   );
 };

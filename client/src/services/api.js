@@ -141,9 +141,9 @@ export const updateSubSection = (trainingId, sectionId, subSectionId, data) => a
 export const deleteSubSection = (trainingId, sectionId, subSectionId) => api.delete(`/trainings/${trainingId}/sections/${sectionId}/subsections/${subSectionId}`);
 
 // Media Upload APIs
-export const uploadImage = (formData) => api.post('/media/upload-image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-export const uploadVideo = (formData) => api.post('/media/upload-video', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-export const uploadPdf = (formData) => api.post('/media/upload-pdf', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const uploadImage = (formData, config = {}) => api.post('/media/upload-image', formData, { headers: { 'Content-Type': 'multipart/form-data' }, ...config });
+export const uploadVideo = (formData, config = {}) => api.post('/media/upload-video', formData, { headers: { 'Content-Type': 'multipart/form-data' }, ...config });
+export const uploadPdf = (formData, config = {}) => api.post('/media/upload-pdf', formData, { headers: { 'Content-Type': 'multipart/form-data' }, ...config });
 export const deleteMedia = (publicId, resourceType) => api.post('/media/delete', { publicId, resourceType });
 
 // Quiz APIs

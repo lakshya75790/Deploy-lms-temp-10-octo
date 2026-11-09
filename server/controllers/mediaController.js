@@ -195,6 +195,22 @@ const uploadPdf = async (req, res, next) => {
       throw new ApiError(400, 'Please select a document file to upload');
     }
 
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const isPdfExtension = originalName.endsWith('.pdf');
+    const isPdfMime = req.file.mimetype === 'application/pdf' || req.file.mimetype === 'application/x-pdf';
+
+    if (!isPdfExtension || !isPdfMime) {
+      throw new ApiError(400, 'Only PDF files are allowed.');
+    }
+
+    // Verify PDF magic header bytes (%PDF-)
+    if (req.file.buffer && req.file.buffer.length >= 4) {
+      const header = req.file.buffer.toString('utf8', 0, 5);
+      if (!header.startsWith('%PDF-')) {
+        throw new ApiError(400, 'Only PDF files are allowed.');
+      }
+    }
+
     const result = await uploadToCloudinary(req.file, 'resources', 'raw');
 
     res.status(200).json(

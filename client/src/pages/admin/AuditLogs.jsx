@@ -185,11 +185,6 @@ export const AuditLogs = () => {
     };
   };
 
-  const openDetailModal = (log) => {
-    setSelectedLog(log);
-    setShowModal(true);
-  };
-
   return (
     <div className="space-y-6 animate-fade-in pb-16 max-w-7xl mx-auto">
       {/* Top Header */}
@@ -282,14 +277,14 @@ export const AuditLogs = () => {
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700">
+            <table className="w-full min-w-[950px] text-left text-xs text-slate-700 table-fixed border-collapse">
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                 <tr>
-                  <th className="p-4">Action Event</th>
-                  <th className="p-4">Performed By</th>
-                  <th className="p-4">Target Entity</th>
-                  <th className="p-4">Event Details</th>
-                  <th className="p-4">Date & Time</th>
+                  <th className="w-[22%] min-w-[195px] p-4 whitespace-nowrap">Action Event</th>
+                  <th className="w-[18%] min-w-[160px] p-4 whitespace-nowrap">Performed By</th>
+                  <th className="w-[13%] min-w-[120px] p-4 whitespace-nowrap">Target Entity</th>
+                  <th className="w-[30%] min-w-[260px] p-4">Event Details</th>
+                  <th className="w-[17%] min-w-[155px] p-4 whitespace-nowrap text-right">Date & Time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -306,42 +301,57 @@ export const AuditLogs = () => {
                       className="hover:bg-slate-50/80 transition-colors"
                     >
                       {/* Action Event Column */}
-                      <td className="p-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-xl text-[11px] font-bold border ${badgeClass}`}>
-                          <ActionIcon className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
-                          {humanAction}
+                      <td className="p-4 align-middle whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-xl text-[11px] font-bold border whitespace-nowrap shrink-0 shadow-2xs ${badgeClass}`}
+                          title={humanAction}
+                        >
+                          <ActionIcon className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                          <span className="whitespace-nowrap">{humanAction}</span>
                         </span>
                       </td>
 
                       {/* Performed By Column */}
-                      <td className="p-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="p-4 align-middle">
+                        <div className="flex items-center space-x-2 min-w-0">
                           <img
                             src={log.userId?.profilePicture || `https://api.dicebear.com/7.x/initials/svg?seed=${log.userName}`}
                             alt={log.userName}
-                            className="w-6 h-6 rounded-lg object-cover bg-slate-100 border border-slate-200"
+                            className="w-6 h-6 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
                           />
-                          <div>
-                            <p className="font-bold text-slate-900">{log.userName || log.userId?.name}</p>
-                            <p className="text-[10px] text-slate-500 font-medium">{roleDisplay}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-slate-900 truncate" title={log.userName || log.userId?.name}>
+                              {log.userName || log.userId?.name}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-medium truncate">
+                              {roleDisplay}
+                            </p>
                           </div>
                         </div>
                       </td>
 
                       {/* Target Entity Column */}
-                      <td className="p-4">
-                        <span className="font-semibold text-slate-700 px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200 text-[11px]">
+                      <td className="p-4 align-middle whitespace-nowrap">
+                        <span
+                          className="font-semibold text-slate-700 px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200 text-[11px] whitespace-nowrap inline-block"
+                          title={humanTarget}
+                        >
                           {humanTarget}
                         </span>
                       </td>
 
                       {/* Event Details Column */}
-                      <td className="p-4 text-slate-600 max-w-md truncate">
-                        {formatDisplayText(log.details) || 'No additional details logged.'}
+                      <td className="p-4 align-middle text-slate-600">
+                        <div
+                          className="w-full max-w-full break-words [overflow-wrap:anywhere] line-clamp-2 leading-relaxed"
+                          title={formatDisplayText(log.details) || 'No additional details logged.'}
+                        >
+                          {formatDisplayText(log.details) || 'No additional details logged.'}
+                        </div>
                       </td>
 
                       {/* Timestamp Column */}
-                      <td className="p-4 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                      <td className="p-4 align-middle text-right font-mono text-[11px] text-slate-500 whitespace-nowrap">
                         {formattedTimestamp}
                       </td>
                     </tr>

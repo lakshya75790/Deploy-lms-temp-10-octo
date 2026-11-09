@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDisplayText } from '../../utils/formatters';
 import {
   Bell,
+  Check,
   CheckCheck,
   CheckCircle,
   XCircle,
@@ -13,16 +16,43 @@ import {
   Lock,
   Unlock,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 
 export const NotificationsPage = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const { notifications, unreadCount, markAsRead, markAllRead } = useNotification();
   const [filter, setFilter] = useState('all'); // 'all' | 'unread'
 
   const filteredNotifications = filter === 'unread'
     ? notifications.filter(n => !n.isRead)
     : notifications;
+
+  const isActionableForUser = (n) => {
+    if (!n || !user?.role) return false;
+    const allowedRoles = n.actionable_roles || n.actionableRoles;
+    if (Array.isArray(allowedRoles)) {
+      return allowedRoles.includes(user.role);
+    }
+    // Safe fallback if not explicitly populated on legacy/cached records
+    const fallbackRoles = {
+      ASSIGNMENT_SUBMITTED: ['Instructor'],
+      ASSIGNMENT_REQUIRES_REVIEW: ['Instructor'],
+      TRAINING_OVERDUE: ['Instructor'],
+      EMPLOYEE_TRAINING_OVERDUE: ['Instructor'],
+      MULTIPLE_EMPLOYEES_OVERDUE: ['Instructor'],
+      TRAINING_ASSIGNED: ['Employee'],
+      NEW_TRAINING_ASSIGNED: ['Employee'],
+      AUTO_ASSIGNED_TRAINING: ['Employee']
+    };
+    const fallback = fallbackRoles[n.type];
+    if (Array.isArray(fallback)) {
+      return fallback.includes(user.role);
+    }
+    return false;
+  };
 
   const getNotifIcon = (type) => {
     switch (type) {
@@ -84,8 +114,12 @@ export const NotificationsPage = () => {
   };
 
   const handleNotificationClick = (n) => {
-    if (!n.isRead) {
-      markAsRead(n.id || n._id);
+    // Navigation on click without automatically changing read status
+    if (isActionableForUser(n)) {
+      const targetUrl = n.action_url || (n.type?.includes('ASSIGNMENT') ? '/instructor/submissions' : null);
+      if (targetUrl) {
+        navigate(targetUrl);
+      }
     }
   };
 
@@ -153,7 +187,7 @@ export const NotificationsPage = () => {
             <div
               key={n.id || n._id}
               onClick={() => handleNotificationClick(n)}
-              className={`p-3.5 xs:p-5 rounded-2xl border transition-all cursor-pointer flex items-start space-x-3 xs:space-x-4 hover:shadow-md ${
+              className={`group relative p-3.5 xs:p-5 rounded-2xl border transition-all cursor-pointer flex items-start space-x-3 xs:space-x-4 hover:shadow-md ${
                 !n.isRead
                   ? 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/40 shadow-xs'
                   : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'
@@ -166,22 +200,56 @@ export const NotificationsPage = () => {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{formatDisplayText(n.title)}</h4>
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0 font-mono">
-                    {new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    {!n.isRead && (
+                      <button
+                        type="button"
+                        title="Mark as Read"
+                        aria-label="Mark as Read"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsRead(n.id || n._id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-150 inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:hover:bg-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 cursor-pointer shadow-xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Mark as Read</span>
+                      </button>
+                    )}
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                      {new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-2">{formatDisplayText(n.message)}</p>
 
-                <div className="flex items-center space-x-2">
-                  {!n.isRead && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      Unread
-                    </span>
-                  )}
-                  {n.type === 'ASSIGNMENT_SUBMITTED' && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                      Action Required
-                    </span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-1">
+                  <div className="flex items-center space-x-2">
+                    {!n.isRead && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        Unread
+                      </span>
+                    )}
+                    {isActionableForUser(n) && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                        Action Required
+                      </span>
+                    )}
+                  </div>
+
+                  {isActionableForUser(n) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const targetUrl = n.action_url || (n.type?.includes('ASSIGNMENT') ? '/instructor/submissions' : null);
+                        if (targetUrl) navigate(targetUrl);
+                      }}
+                      className="inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+                    >
+                      <span>{n.action_label || (n.type?.includes('ASSIGNMENT') ? 'Evaluate Submission' : 'View Action')}</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                    </button>
                   )}
                 </div>
               </div>

@@ -15,7 +15,7 @@ import {
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { useNotification } from '../../context/NotificationContext';
 import { useFocusMode } from '../../context/FocusContext';
-import { validateDocumentFile } from '../../utils/fileValidation';
+import { validateDocumentFile, validatePdfFile } from '../../utils/fileValidation';
 import { formatDate } from '../../utils/formatters';
 import {
   ArrowLeft,
@@ -39,7 +39,9 @@ import {
   Code2,
   Upload,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  RotateCw,
+  ExternalLink
 } from 'lucide-react';
 
 export const TrainingPlayer = () => {
@@ -110,6 +112,7 @@ export const TrainingPlayer = () => {
   const [submissionType, setSubmissionType] = useState('github'); // 'github' | 'file'
   const [githubUrl, setGithubUrl] = useState('');
   const [uploadedFileUrl, setUploadedFileUrl] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   const [existingSubmission, setExistingSubmission] = useState(null);
   const [submittingAssignment, setSubmittingAssignment] = useState(false);
@@ -582,6 +585,23 @@ export const TrainingPlayer = () => {
             questionIdx: qIdx,
             selectedAnswerText: ansVal !== undefined && ansVal !== null ? String(ansVal).trim() : ''
           };
+        } else if (qType === 'MSQ') {
+          let indices = [];
+          if (Array.isArray(ansVal)) {
+            indices = ansVal.map(Number).filter(n => !isNaN(n));
+          } else if (ansVal !== undefined && ansVal !== null && !isNaN(Number(ansVal))) {
+            indices = [Number(ansVal)];
+          }
+          indices = Array.from(new Set(indices)).sort((a, b) => a - b);
+          const selectedText = indices.map(i => qObj.options?.[i]).filter(Boolean).join(', ');
+          return {
+            questionIndex: qIdx,
+            questionIdx: qIdx,
+            selectedOptionIndices: indices,
+            selectedOptionIdxs: indices,
+            selectedOptionIndex: indices.length > 0 ? indices[0] : null,
+            selectedAnswerText: selectedText
+          };
         } else {
           const optIdx = ansVal !== undefined && ansVal !== null && !isNaN(Number(ansVal)) ? Number(ansVal) : null;
           return {
@@ -630,6 +650,10 @@ export const TrainingPlayer = () => {
   // Load Active Assignment details
   useEffect(() => {
     if (activeItem && activeItem.type === 'assignment') {
+      setUploadedFileUrl('');
+      setUploadedFileName('');
+      setExistingSubmission(null);
+      setGithubUrl('');
       getAssignmentById(activeItem.id)
         .then(res => {
           setAssignmentDetails(res.data.data.assignment);
@@ -637,7 +661,16 @@ export const TrainingPlayer = () => {
             setExistingSubmission(res.data.data.userSubmission);
             setSubmissionType(res.data.data.userSubmission.submissionType);
             if (res.data.data.userSubmission.githubUrl) setGithubUrl(res.data.data.userSubmission.githubUrl);
-            if (res.data.data.userSubmission.fileUrl) setUploadedFileUrl(res.data.data.userSubmission.fileUrl);
+            if (res.data.data.userSubmission.fileUrl) {
+              setUploadedFileUrl(res.data.data.userSubmission.fileUrl);
+              try {
+                const urlParts = res.data.data.userSubmission.fileUrl.split('/');
+                const rawName = decodeURIComponent(urlParts[urlParts.length - 1] || 'assignment.pdf').split('?')[0];
+                setUploadedFileName(rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`);
+              } catch (e) {
+                setUploadedFileName('assignment.pdf');
+              }
+            }
           }
         })
         .catch(err => {
@@ -650,10 +683,10 @@ export const TrainingPlayer = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const validation = validateDocumentFile(file);
+    const validation = validatePdfFile(file);
     if (!validation.valid) {
       addToast('error', validation.error);
-      e.target.value = null;
+      e.target.value = '';
       return;
     }
 
@@ -663,12 +696,13 @@ export const TrainingPlayer = () => {
     try {
       const res = await uploadPdf(formData);
       setUploadedFileUrl(res.data.data.url);
+      setUploadedFileName(file.name || res.data.data.originalName || 'assignment.pdf');
       addToast('success', 'Assignment file uploaded successfully!');
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to upload file');
     } finally {
       setUploadingFile(false);
-      e.target.value = null;
+      e.target.value = '';
     }
   };
 
@@ -774,13 +808,38 @@ export const TrainingPlayer = () => {
     }
   };
 
+  // Quick 10-second Rewind (Available at all times)
+  const handleRewind10 = () => {
+    if (videoRef.current) {
+      const cur = videoRef.current.currentTime || currentTime || 0;
+      const target = Math.max(0, cur - 10);
+      videoRef.current.currentTime = target;
+      setCurrentTime(target);
+    }
+  };
+
+  // Quick 10-second Forward (Locked until video completed once)
+  const handleForward10 = () => {
+    if (!canSeekForward) {
+      addToast('warning', 'Forward skipping is disabled until you finish watching the video once.');
+      return;
+    }
+    if (videoRef.current) {
+      const dur = videoRef.current.duration || duration || 0;
+      const cur = videoRef.current.currentTime || currentTime || 0;
+      const target = dur > 0 ? Math.min(dur, cur + 10) : cur + 10;
+      videoRef.current.currentTime = target;
+      setCurrentTime(target);
+    }
+  };
+
   const handleSeek = (e) => {
     const time = Number(e.target.value);
     if (videoRef.current) {
       const dur = videoRef.current.duration || duration || 0;
 
       // Allow unrestricted seeking for already completed video lessons
-      if (activeStatus.isCompleted) {
+      if (canSeekForward) {
         if (dur > 0 && time >= dur - 0.25) {
           videoRef.current.currentTime = dur;
           setCurrentTime(dur);
@@ -796,7 +855,7 @@ export const TrainingPlayer = () => {
         const allowed = Math.min(time, maxWatchedTime);
         videoRef.current.currentTime = allowed;
         setCurrentTime(allowed);
-        addToast('warning', 'Forward seeking is disabled until you watch the full video.');
+        addToast('warning', 'Forward seeking is disabled until you watch the full video once.');
         return;
       }
 
@@ -812,7 +871,7 @@ export const TrainingPlayer = () => {
 
   const handleSeeking = () => {
     if (!videoRef.current) return;
-    if (activeStatus.isCompleted) return;
+    if (canSeekForward) return;
 
     if (videoRef.current.currentTime > maxWatchedTime + 0.5) {
       videoRef.current.currentTime = maxWatchedTime;
@@ -882,6 +941,7 @@ export const TrainingPlayer = () => {
 
   const currentIdx = allItems.findIndex(i => activeItem && i.id === activeItem.id && i.type === activeItem.type);
   const activeStatus = activeItem ? getItemStatus(activeItem) : { isCompleted: false, isLocked: false };
+  const canSeekForward = Boolean(activeStatus.isCompleted || hasVideoReachedEnd);
 
   const canGoPrev = currentIdx > 0;
   const canGoNext = currentIdx >= 0 && currentIdx < allItems.length - 1 && activeStatus.isCompleted;
@@ -891,6 +951,321 @@ export const TrainingPlayer = () => {
   const calculatedPercentage = totalItemsCount > 0
     ? (completedCount === totalItemsCount ? 100 : Math.round((completedCount / totalItemsCount) * 100))
     : 0;
+
+  // ACTIVE FOCUS MODE QUIZ SCREEN (Full viewport distraction-free mode: min-height 100vh)
+  if (quizStarted && !quizSubmitted && quizData) {
+    if (quizPaused) {
+      return (
+        <div className="min-h-screen min-h-[100vh] w-full bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 sm:p-8 animate-fade-in">
+          <div className="w-24 h-24 bg-rose-50 dark:bg-rose-950/50 rounded-full flex items-center justify-center border border-rose-200 dark:border-rose-800 mb-6 shadow-sm">
+            <AlertTriangle className="w-12 h-12 text-rose-500" />
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-slate-100 mb-4 tracking-tight text-center">Quiz Paused</h2>
+          <p className="text-base sm:text-lg text-rose-700 dark:text-rose-400 font-bold max-w-lg text-center leading-relaxed mb-8">
+            {violationWarning}
+          </p>
+          <button
+            onClick={returnToFocusMode}
+            className="px-8 sm:px-10 py-3.5 sm:py-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base sm:text-lg transition-all cursor-pointer shadow-xl hover:shadow-emerald-500/30"
+          >
+            Return to Focus Mode
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen min-h-[100vh] w-full bg-slate-50 dark:bg-slate-950 flex flex-col p-4 sm:p-6 lg:p-8">
+        <div className="flex flex-col flex-1 w-full max-w-7xl 2xl:max-w-[1600px] mx-auto gap-6 min-h-0">
+          {/* FOCUS MODE HEADER */}
+          <div className="flex flex-col sm:flex-row items-center justify-between bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 gap-4 shrink-0">
+            <div className="flex items-center space-x-4 flex-1 min-w-0">
+              <div className="hidden sm:flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-800/80 shrink-0">
+                <Lock className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center space-x-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 uppercase tracking-wider shrink-0">
+                    Focus Mode Active
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 mt-1 truncate" title={quizData.title}>
+                  {quizData.title}
+                </h2>
+              </div>
+            </div>
+
+            {quizTimeRemaining !== null && (
+              <div className="px-5 sm:px-6 py-2 sm:py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-mono text-base sm:text-lg font-bold shadow-md flex items-center border border-transparent dark:border-slate-700 shrink-0">
+                <Clock className="w-5 h-5 mr-2 text-emerald-400" />
+                {formatVideoTime(quizTimeRemaining)}
+              </div>
+            )}
+
+            <div className="flex sm:flex-1 justify-end shrink-0">
+              <button
+                onClick={() => submitQuizAnswers(false)}
+                disabled={submittingQuiz}
+                className="px-5 sm:px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md cursor-pointer transition-all flex items-center"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                {submittingQuiz ? 'Evaluating...' : 'Submit Quiz'}
+              </button>
+            </div>
+          </div>
+
+          {/* TWO COLUMN / MAIN QUIZ LAYOUT */}
+          <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
+            {/* LEFT COLUMN: QUESTION CARD */}
+            <div className="flex-1 min-w-0 bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 sm:p-8 flex flex-col justify-between min-h-0">
+              {quizData.questions && quizData.questions.length > 0 && (() => {
+                const currentQ = quizData.questions[currentQuestionIdx];
+                const qType = currentQ.questionType || (currentQ.options && currentQ.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+
+                return (
+                  <div className="flex flex-col flex-1 min-h-0 justify-between">
+                    {/* Question Header & Body */}
+                    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1">
+                      <div className="flex justify-between items-center text-sm font-bold text-slate-700 dark:text-slate-300 pb-4 border-b border-slate-100 dark:border-slate-800 mb-6 shrink-0">
+                        <span>Question {currentQuestionIdx + 1} of {quizData.questions.length}</span>
+                        <span className="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          {qType === 'TRUE_FALSE' ? 'True / False' : qType === 'FILL_IN_BLANK' ? 'Fill in the Blank' : qType === 'MSQ' ? 'Multiple Select' : 'Multiple Choice'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-6 flex-1">
+                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg sm:text-xl leading-relaxed break-words [overflow-wrap:anywhere]">
+                          {currentQ.questionText}
+                        </h3>
+
+                        {/* Choice Options for MCQ (Single Select) */}
+                        {qType === 'MCQ' && (
+                          <div className="space-y-3">
+                            {currentQ.options?.map((opt, optIdx) => (
+                              <label
+                                key={optIdx}
+                                className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${
+                                  selectedAnswers[currentQuestionIdx] === optIdx
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-xs'
+                                    : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${
+                                  selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-600'
+                                }`}>
+                                  {selectedAnswers[currentQuestionIdx] === optIdx && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />}
+                                </div>
+                                <input
+                                  type="radio"
+                                  name={`q_${currentQuestionIdx}`}
+                                  checked={selectedAnswers[currentQuestionIdx] === optIdx}
+                                  onChange={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: optIdx })}
+                                  className="hidden"
+                                />
+                                <span className="leading-relaxed break-words [overflow-wrap:anywhere]">{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Choice Options for MSQ (Multiple Select / Checkboxes) */}
+                        {qType === 'MSQ' && (
+                          <div className="space-y-3">
+                            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                              Choose all correct answers:
+                            </p>
+                            {currentQ.options?.map((opt, optIdx) => {
+                              const currentSelectedList = Array.isArray(selectedAnswers[currentQuestionIdx])
+                                ? selectedAnswers[currentQuestionIdx]
+                                : (selectedAnswers[currentQuestionIdx] !== undefined && selectedAnswers[currentQuestionIdx] !== null ? [Number(selectedAnswers[currentQuestionIdx])] : []);
+                              const isChecked = currentSelectedList.includes(optIdx);
+
+                              return (
+                                <label
+                                  key={optIdx}
+                                  className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${
+                                    isChecked
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-xs'
+                                      : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${
+                                    isChecked ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600'
+                                  }`}>
+                                    {isChecked && (
+                                      <svg className="w-3.5 h-3.5 stroke-current stroke-3 fill-none" viewBox="0 0 24 24">
+                                        <polyline points="20 6 9 17 4 12" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    name={`q_${currentQuestionIdx}_${optIdx}`}
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      let updatedList;
+                                      if (isChecked) {
+                                        updatedList = currentSelectedList.filter(i => i !== optIdx);
+                                      } else {
+                                        updatedList = [...currentSelectedList, optIdx].sort((a, b) => a - b);
+                                      }
+                                      setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: updatedList });
+                                    }}
+                                    className="hidden"
+                                  />
+                                  <span className="leading-relaxed break-words [overflow-wrap:anywhere]">{opt}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {qType === 'TRUE_FALSE' && (
+                          <div className="grid grid-cols-2 gap-4">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 0 })}
+                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
+                                selectedAnswers[currentQuestionIdx] === 0
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 shadow-xs'
+                                  : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="text-2xl">✓</span>
+                              <span>True</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 1 })}
+                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
+                                selectedAnswers[currentQuestionIdx] === 1
+                                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-300 shadow-xs'
+                                  : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-300 dark:hover:border-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="text-2xl">✕</span>
+                              <span>False</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {qType === 'FILL_IN_BLANK' && (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={selectedAnswers[currentQuestionIdx] !== undefined && selectedAnswers[currentQuestionIdx] !== null ? selectedAnswers[currentQuestionIdx] : ''}
+                              onChange={(e) => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: e.target.value })}
+                              placeholder="Type your answer here..."
+                              className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Navigation Controls Bar */}
+                    <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-slate-800 mt-6 shrink-0">
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setCurrentQuestionIdx(prev => Math.max(0, prev - 1))}
+                          disabled={currentQuestionIdx === 0}
+                          className="px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                        >
+                          ← Previous
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setMarkedForReview(prev => ({
+                              ...prev,
+                              [currentQuestionIdx]: !prev[currentQuestionIdx]
+                            }));
+                          }}
+                          className={`px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border text-xs sm:text-sm font-bold cursor-pointer transition-colors flex items-center ${
+                            markedForReview[currentQuestionIdx]
+                              ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span className="mr-1.5">🚩</span>
+                          {markedForReview[currentQuestionIdx] ? 'Marked for Review' : 'Mark for Review'}
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => setCurrentQuestionIdx(prev => Math.min(quizData.questions.length - 1, prev + 1))}
+                        disabled={currentQuestionIdx === quizData.questions.length - 1}
+                        className="px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-xs"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* RIGHT COLUMN: QUESTION NAVIGATOR */}
+            <div className="w-full lg:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 flex flex-col justify-between shrink-0 min-h-0">
+              <div>
+                <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  Question Navigator
+                </h3>
+
+                <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-5 gap-2 max-h-56 sm:max-h-72 lg:max-h-none overflow-y-auto pr-1">
+                  {quizData.questions?.map((_, idx) => {
+                    const isAnswered = Array.isArray(selectedAnswers[idx])
+                      ? selectedAnswers[idx].length > 0
+                      : (selectedAnswers[idx] !== undefined && selectedAnswers[idx] !== null && selectedAnswers[idx] !== '');
+                    const isCurrent = idx === currentQuestionIdx;
+                    const isReview = markedForReview[idx];
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentQuestionIdx(idx)}
+                        className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${
+                          isCurrent
+                            ? 'border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600 text-white shadow-xs transform scale-105'
+                            : isReview
+                            ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                            : isAnswered
+                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {idx + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Navigator Legend */}
+              <div className="pt-5 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0 mt-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-4 h-4 rounded border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50"></div>
+                  <span>Answered</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-4 h-4 rounded border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"></div>
+                  <span>Unanswered</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-center leading-[14px]">🚩</div>
+                  <span>Review</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-4 h-4 rounded border-2 border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600"></div>
+                  <span>Current</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
@@ -966,7 +1341,7 @@ export const TrainingPlayer = () => {
               </div>
               <div className="space-y-2">
                 <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-extrabold border border-emerald-200">
-                  🎉 Course 100% Completed
+                  Course 100% Completed
                 </span>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
                   Congratulations!
@@ -1079,9 +1454,48 @@ export const TrainingPlayer = () => {
                         </div>
 
                         <div className="flex items-center justify-between text-white text-xs">
-                          <div className="flex items-center space-x-3">
-                            <button onClick={togglePlay} className="p-1 hover:text-emerald-400 transition-colors cursor-pointer">
+                          <div className="flex items-center space-x-2 sm:space-x-3">
+                            <button
+                              type="button"
+                              onClick={togglePlay}
+                              className="p-1 hover:text-emerald-400 transition-colors cursor-pointer"
+                              title={isPlaying ? 'Pause' : 'Play'}
+                              aria-label={isPlaying ? 'Pause' : 'Play'}
+                            >
                               {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                            </button>
+
+                            {/* -10s Quick Rewind Button (Always available) */}
+                            <button
+                              type="button"
+                              onClick={handleRewind10}
+                              className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 hover:text-emerald-400 text-slate-200 text-xs font-bold font-mono transition-colors cursor-pointer flex items-center gap-1"
+                              title="Rewind 10 seconds (-10s)"
+                              aria-label="Rewind 10 seconds"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span className="text-[10px]">-10s</span>
+                            </button>
+
+                            {/* +10s Quick Forward Button (Locked until video completed once) */}
+                            <button
+                              type="button"
+                              onClick={handleForward10}
+                              disabled={!canSeekForward}
+                              className={`px-2 py-1 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1 ${
+                                canSeekForward
+                                  ? 'bg-white/10 hover:bg-white/20 hover:text-emerald-400 text-slate-200 cursor-pointer'
+                                  : 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                              }`}
+                              title={
+                                canSeekForward
+                                  ? 'Forward 10 seconds (+10s)'
+                                  : 'Forward skip is locked until you watch the full video once'
+                              }
+                              aria-label="Forward 10 seconds"
+                            >
+                              <span className="text-[10px]">+10s</span>
+                              <RotateCw className="w-3.5 h-3.5" />
                             </button>
 
                             <span className="font-mono text-[11px]">
@@ -1205,7 +1619,9 @@ export const TrainingPlayer = () => {
                     {quizResult.evaluatedAnswers?.map((ans, idx) => {
                       const userAnsText = ans.selectedAnswerText || (ans.options && ans.selectedOptionIndex !== null && ans.selectedOptionIndex !== undefined ? ans.options[ans.selectedOptionIndex] : (ans.status === 'data_unavailable' ? 'Answer data unavailable' : 'Not Answered'));
                       const corrAnsText = ans.correctAnswerText || (ans.options && ans.correctAnswerIndex !== null && ans.correctAnswerIndex !== undefined ? ans.options[ans.correctAnswerIndex] : 'N/A');
-                      const isUnanswered = (ans.selectedOptionIndex === null || ans.selectedOptionIndex === undefined) && (!ans.selectedAnswerText || !ans.selectedAnswerText.trim());
+                      const isUnanswered = (!ans.selectedOptionIndices || ans.selectedOptionIndices.length === 0) &&
+                        (ans.selectedOptionIndex === null || ans.selectedOptionIndex === undefined) &&
+                        (!ans.selectedAnswerText || !ans.selectedAnswerText.trim());
 
                       return (
                         <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
@@ -1330,250 +1746,7 @@ export const TrainingPlayer = () => {
                     </button>
                   </div>
                 </div>
-              ) : (
-                /* ACTIVE QUIZ QUESTIONNAIRE */
-                <div className={quizStarted && !quizSubmitted ? "fixed inset-0 z-[9999] bg-slate-50 dark:bg-slate-950 flex flex-col" : "space-y-6"}>
-                  {quizStarted && !quizSubmitted && quizPaused ? (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white dark:bg-slate-900 animate-fade-in">
-                      <div className="w-24 h-24 bg-rose-50 dark:bg-rose-950/50 rounded-full flex items-center justify-center border border-rose-200 dark:border-rose-800 mb-6 shadow-sm">
-                        <AlertTriangle className="w-12 h-12 text-rose-500" />
-                      </div>
-                      <h2 className="text-4xl font-black text-slate-900 dark:text-slate-100 mb-4 tracking-tight">Quiz Paused</h2>
-                      <p className="text-lg text-rose-700 dark:text-rose-400 font-bold max-w-lg text-center leading-relaxed mb-8">
-                        {violationWarning}
-                      </p>
-                      <button
-                        onClick={returnToFocusMode}
-                        className="px-10 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg transition-all cursor-pointer shadow-xl hover:shadow-emerald-500/30"
-                      >
-                        Return to Focus Mode
-                      </button>
-                    </div>
-                  ) : quizStarted && !quizSubmitted ? (
-                    <div className="flex flex-col h-full w-full max-w-7xl mx-auto p-4 sm:p-6 gap-6">
-                      {/* FOCUS MODE HEADER */}
-                      <div className="flex flex-col md:flex-row items-center justify-between bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 gap-4">
-                        <div className="flex items-center space-x-4 flex-1">
-                          <div className="hidden sm:flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-800/80">
-                            <Lock className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                          </div>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 uppercase tracking-wider">
-                                Focus Mode Active
-                              </span>
-                            </div>
-                            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">{quizData.title}</h2>
-                          </div>
-                        </div>
-
-                        {quizTimeRemaining !== null && (
-                          <div className="px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-mono text-lg font-bold shadow-md flex items-center border border-transparent dark:border-slate-700">
-                            <Clock className="w-5 h-5 mr-2 text-emerald-400" />
-                            {formatVideoTime(quizTimeRemaining)}
-                          </div>
-                        )}
-
-                        <div className="flex-1 flex justify-end">
-                          <button
-                            onClick={() => submitQuizAnswers(false)}
-                            disabled={submittingQuiz}
-                            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md cursor-pointer transition-all flex items-center"
-                          >
-                            <CheckCircle2 className="w-4 h-4 mr-2" />
-                            {submittingQuiz ? 'Evaluating...' : 'Submit Quiz'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* TWO COLUMN LAYOUT */}
-                      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
-                        {/* LEFT COLUMN: QUESTION CARD */}
-                        <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 sm:p-8 overflow-y-auto flex flex-col">
-                          {quizData.questions && quizData.questions.length > 0 && (() => {
-                            const currentQ = quizData.questions[currentQuestionIdx];
-                            const qType = currentQ.questionType || (currentQ.options && currentQ.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-
-                            return (
-                              <div className="flex flex-col h-full">
-                                <div className="flex justify-between items-center text-sm font-bold text-slate-700 dark:text-slate-300 pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
-                                  <span>Question {currentQuestionIdx + 1} of {quizData.questions.length}</span>
-                                  <span className="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                    {qType === 'TRUE_FALSE' ? 'True / False' : qType === 'FILL_IN_BLANK' ? 'Fill in the Blank' : 'Multiple Choice'}
-                                  </span>
-                                </div>
-
-                                <div className="flex-1 space-y-8">
-                                  <h3 className="font-bold text-slate-900 dark:text-slate-100 text-xl leading-relaxed">
-                                    {currentQ.questionText}
-                                  </h3>
-
-                                  {/* Choice Options */}
-                                  {qType === 'MCQ' && (
-                                    <div className="space-y-3">
-                                      {currentQ.options?.map((opt, optIdx) => (
-                                        <label
-                                          key={optIdx}
-                                          className={`flex items-center p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${selectedAnswers[currentQuestionIdx] === optIdx
-                                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-sm'
-                                              : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                            }`}
-                                        >
-                                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 ${selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-600'
-                                            }`}>
-                                            {selectedAnswers[currentQuestionIdx] === optIdx && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />}
-                                          </div>
-                                          <input
-                                            type="radio"
-                                            name={`q_${currentQuestionIdx}`}
-                                            checked={selectedAnswers[currentQuestionIdx] === optIdx}
-                                            onChange={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: optIdx })}
-                                            className="hidden"
-                                          />
-                                          <span className="leading-relaxed">{opt}</span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {qType === 'TRUE_FALSE' && (
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 0 })}
-                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 0
-                                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 shadow-sm'
-                                            : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                          }`}
-                                      >
-                                        <span className="text-2xl">✓</span>
-                                        <span>True</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 1 })}
-                                        className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 1
-                                            ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-300 shadow-sm'
-                                            : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-300 dark:hover:border-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                          }`}
-                                      >
-                                        <span className="text-2xl">✕</span>
-                                        <span>False</span>
-                                      </button>
-                                    </div>
-                                  )}
-
-                                  {qType === 'FILL_IN_BLANK' && (
-                                    <div className="space-y-3">
-                                      <input
-                                        type="text"
-                                        value={selectedAnswers[currentQuestionIdx] !== undefined && selectedAnswers[currentQuestionIdx] !== null ? selectedAnswers[currentQuestionIdx] : ''}
-                                        onChange={(e) => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: e.target.value })}
-                                        placeholder="Type your answer here..."
-                                        className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-slate-800 mt-6">
-                                  <div className="flex gap-3">
-                                    <button
-                                      onClick={() => setCurrentQuestionIdx(prev => Math.max(0, prev - 1))}
-                                      disabled={currentQuestionIdx === 0}
-                                      className="px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                                    >
-                                      ← Previous
-                                    </button>
-
-                                    <button
-                                      onClick={() => {
-                                        setMarkedForReview(prev => ({
-                                          ...prev,
-                                          [currentQuestionIdx]: !prev[currentQuestionIdx]
-                                        }));
-                                      }}
-                                      className={`px-4 py-3 rounded-xl border text-sm font-bold cursor-pointer transition-colors flex items-center ${markedForReview[currentQuestionIdx]
-                                          ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
-                                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                        }`}
-                                    >
-                                      <span className="mr-2">🚩</span>
-                                      {markedForReview[currentQuestionIdx] ? 'Marked for Review' : 'Mark for Review'}
-                                    </button>
-                                  </div>
-                                  <button
-                                    onClick={() => setCurrentQuestionIdx(prev => Math.min(quizData.questions.length - 1, prev + 1))}
-                                    disabled={currentQuestionIdx === quizData.questions.length - 1}
-                                    className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-md"
-                                  >
-                                    Next →
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-
-                        {/* RIGHT COLUMN: QUESTION NAVIGATOR */}
-                        <div className="w-full lg:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 flex flex-col h-full overflow-y-auto">
-                          <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-                            Question Navigator
-                          </h3>
-
-                          <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-5 gap-2 mb-8">
-                            {quizData.questions?.map((_, idx) => {
-                              const isAnswered = selectedAnswers[idx] !== undefined && selectedAnswers[idx] !== null && selectedAnswers[idx] !== '';
-                              const isCurrent = idx === currentQuestionIdx;
-                              const isReview = markedForReview[idx];
-
-                              return (
-                                <button
-                                  key={idx}
-                                  onClick={() => setCurrentQuestionIdx(idx)}
-                                  className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${isCurrent
-                                      ? 'border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600 text-white shadow-md transform scale-110'
-                                      : isReview
-                                        ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
-                                        : isAnswered
-                                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
-                                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                    }`}
-                                >
-                                  {idx + 1}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          <div className="mt-auto space-y-3 pt-6 border-t border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50"></div>
-                              <span>Answered</span>
-                            </div>
-                            <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"></div>
-                              <span>Unanswered</span>
-                            </div>
-                            <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-center leading-[14px]">🚩</div>
-                              <span>Review</span>
-                            </div>
-                            <div className="flex items-center space-x-3">
-                              <div className="w-4 h-4 rounded border-2 border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600"></div>
-                              <span>Current</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      <p>Something went wrong. Please refresh the page.</p>
-                    </div>
-                  )}
-                </div>
-              )}
+              ) : null}
             </div>
           ) : activeItem?.type === 'assignment' ? (
             /* INTEGRATED ASSIGNMENT VIEW */
@@ -1641,13 +1814,39 @@ export const TrainingPlayer = () => {
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
                           Upload Assignment File / PDF <span className="text-rose-500">*</span>
                         </label>
-                        <div className="flex items-center space-x-3">
-                          <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-xs">
                             <Upload className="w-4 h-4 mr-1.5" />
-                            {uploadingFile ? 'Uploading...' : 'Choose File'}
-                            <input type="file" onChange={handleFileUpload} className="hidden" disabled={uploadingFile} />
+                            {uploadingFile ? 'Uploading...' : uploadedFileUrl ? 'Replace PDF' : 'Choose File'}
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={handleFileUpload}
+                              className="hidden"
+                              disabled={uploadingFile}
+                            />
                           </label>
-                          {uploadedFileUrl && <span className="text-xs text-emerald-700 font-mono font-bold truncate max-w-xs">{uploadedFileUrl}</span>}
+                          {uploadedFileUrl && (
+                            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span className="font-semibold truncate max-w-[200px] sm:max-w-xs" title={uploadedFileName || 'assignment.pdf'}>
+                                {uploadedFileName || 'assignment.pdf'}
+                              </span>
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                                Uploaded
+                              </span>
+                              <a
+                                href={uploadedFileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-300 transition-colors"
+                                title="View Uploaded PDF"
+                                aria-label="View Uploaded PDF"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1670,6 +1869,22 @@ export const TrainingPlayer = () => {
                         <p className="text-[11px] text-slate-500">
                           Submitted on: {formatDate(existingSubmission.submittedAt)}
                         </p>
+
+                        {existingSubmission.submissionType === 'file' && existingSubmission.fileUrl && (
+                          <div className="flex items-center space-x-2 pt-1 text-[11px] text-slate-600">
+                            <FileText className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="font-medium truncate max-w-xs">{uploadedFileName || 'assignment.pdf'}</span>
+                            <a
+                              href={existingSubmission.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-600 hover:text-emerald-700 font-semibold inline-flex items-center ml-1"
+                              title="View Submitted PDF"
+                            >
+                              View PDF <ExternalLink className="w-3 h-3 ml-0.5" />
+                            </a>
+                          </div>
+                        )}
 
                         {existingSubmission.status === 'reviewed' ? (
                           <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-1.5 mt-2">

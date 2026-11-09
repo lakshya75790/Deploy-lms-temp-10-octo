@@ -3,14 +3,16 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const app = require('./app');
-const connectDB = require('./config/db');
-const TrainingAssignment = require('./models/TrainingAssignment');
+const { prisma, withId } = require('./config/prismaClient');
+const bcrypt = require('bcryptjs');
 
-function makeRequest({ method, path, headers = {}, body = null, port = 5020 }) {
+let dynamicPort = 0;
+
+function makeRequest({ method, path, headers = {}, body = null, port = 0 }) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: '127.0.0.1',
-      port,
+      port: port || dynamicPort,
       path,
       method,
       headers: {
@@ -32,7 +34,7 @@ function makeRequest({ method, path, headers = {}, body = null, port = 5020 }) {
         const setCookieHeader = res.headers['set-cookie'];
         let cookie = '';
         if (setCookieHeader && setCookieHeader.length > 0) {
-          cookie = setCookieHeader[0].split(';')[0];
+          cookie = setCookieHeader.map(c => c.split(';')[0]).join('; ');
         }
         resolve({ statusCode: res.statusCode, cookie, body: json });
       });
@@ -47,9 +49,8 @@ function makeRequest({ method, path, headers = {}, body = null, port = 5020 }) {
 async function runOverdueAndLockControlsE2ETest() {
   console.log('🚀 Running E2E Verification for Instructor Overdue & Per-Employee Lock Controls...\n');
 
-  await connectDB();
-
-  const server = app.listen(5020, async () => {
+  const server = app.listen(0, async () => {
+    dynamicPort = server.address().port;
     try {
       const ts = Date.now();
       const adminEmail = `lc_admin_${ts}@test.com`;
@@ -57,39 +58,83 @@ async function runOverdueAndLockControlsE2ETest() {
       const emp1Email = `lc_harshita_${ts}@test.com`;
       const emp2Email = `lc_lakshya_${ts}@test.com`;
       const emp3Email = `lc_aman_${ts}@test.com`;
+      const passwordHash = await bcrypt.hash('Password123', 10);
 
-      // 1. Setup Org & Admin
-      console.log('1. Setting up Org & Admin...');
-      const setupRes = await makeRequest({
-        method: 'POST',
-        path: '/api/auth/setup-org',
-        body: {
-          orgName: `Lock Control Org ${ts}`,
-          orgCode: `LCO${ts.toString().slice(-4)}`,
-          adminName: 'Lock Admin',
-          adminEmail,
-          adminPassword: 'Password123'
+      // 1. Setup Org & Users directly in Prisma
+      console.log('1. Setting up Org, Admin, Instructor, and 3 Employees (Harshita, Lakshya, Aman)...');
+      const org = await prisma.organization.create({
+        data: {
+          name: `Lock Control Org ${ts}`,
+          code: `LCO${ts.toString().slice(-4)}`
         }
       });
-      const adminCookie = setupRes.cookie;
-      const orgCode = setupRes.body.data.organization.code;
 
-      // 2. Register Instructor & 3 Employees
-      console.log('\n2. Registering Instructor & 3 Employees (Harshita, Lakshya, Aman)...');
-      const catRes = await makeRequest({
-        method: 'POST',
-        path: '/api/categories',
-        headers: { Cookie: adminCookie },
-        body: { name: 'Workplace Skills' }
+      const admin = await prisma.user.create({
+        data: {
+          name: 'Lock Admin',
+          email: adminEmail,
+          password: passwordHash,
+          role: 'Admin',
+          status: 'active',
+          organization: { connect: { id: org.id } }
+        }
       });
-      const catId = catRes.body.data.category._id;
 
-      await makeRequest({
-        method: 'POST',
-        path: '/api/org/instructors',
-        headers: { Cookie: adminCookie },
-        body: { name: 'Master Instructor', email: instEmail, password: 'Password123' }
+      const instructor = await prisma.user.create({
+        data: {
+          name: 'Master Instructor',
+          email: instEmail,
+          password: passwordHash,
+          role: 'Instructor',
+          status: 'active',
+          organization: { connect: { id: org.id } }
+        }
       });
+
+      const emp1 = await prisma.user.create({
+        data: {
+          name: 'Harshita Paliwal',
+          email: emp1Email,
+          password: passwordHash,
+          role: 'Employee',
+          status: 'active',
+          organization: { connect: { id: org.id } }
+        }
+      });
+      const emp1Id = emp1.id;
+
+      const emp2 = await prisma.user.create({
+        data: {
+          name: 'Lakshya Joshi',
+          email: emp2Email,
+          password: passwordHash,
+          role: 'Employee',
+          status: 'active',
+          organization: { connect: { id: org.id } }
+        }
+      });
+      const emp2Id = emp2.id;
+
+      const emp3 = await prisma.user.create({
+        data: {
+          name: 'Aman Kumar',
+          email: emp3Email,
+          password: passwordHash,
+          role: 'Employee',
+          status: 'active',
+          organization: { connect: { id: org.id } }
+        }
+      });
+      const emp3Id = emp3.id;
+
+      // 2. Log in all users to obtain session cookies
+      console.log('\n2. Logging in Admin, Instructor, and 3 Employees...');
+      const adminLogin = await makeRequest({
+        method: 'POST',
+        path: '/api/auth/login',
+        body: { email: adminEmail, password: 'Password123' }
+      });
+      const adminCookie = adminLogin.cookie;
 
       const instLogin = await makeRequest({
         method: 'POST',
@@ -98,35 +143,34 @@ async function runOverdueAndLockControlsE2ETest() {
       });
       const instCookie = instLogin.cookie;
 
-      // Employee 1: Harshita
-      const e1Reg = await makeRequest({
+      const emp1Login = await makeRequest({
         method: 'POST',
-        path: '/api/auth/register-employee',
-        body: { name: 'Harshita Paliwal', email: emp1Email, password: 'Password123', orgCode }
+        path: '/api/auth/login',
+        body: { email: emp1Email, password: 'Password123' }
       });
-      const emp1Id = e1Reg.body.data.user._id;
-      const emp1Login = await makeRequest({ method: 'POST', path: '/api/auth/login', body: { email: emp1Email, password: 'Password123' } });
       const emp1Cookie = emp1Login.cookie;
 
-      // Employee 2: Lakshya
-      const e2Reg = await makeRequest({
+      const emp2Login = await makeRequest({
         method: 'POST',
-        path: '/api/auth/register-employee',
-        body: { name: 'Lakshya Joshi', email: emp2Email, password: 'Password123', orgCode }
+        path: '/api/auth/login',
+        body: { email: emp2Email, password: 'Password123' }
       });
-      const emp2Id = e2Reg.body.data.user._id;
-      const emp2Login = await makeRequest({ method: 'POST', path: '/api/auth/login', body: { email: emp2Email, password: 'Password123' } });
       const emp2Cookie = emp2Login.cookie;
 
-      // Employee 3: Aman
-      const e3Reg = await makeRequest({
+      const emp3Login = await makeRequest({
         method: 'POST',
-        path: '/api/auth/register-employee',
-        body: { name: 'Aman Kumar', email: emp3Email, password: 'Password123', orgCode }
+        path: '/api/auth/login',
+        body: { email: emp3Email, password: 'Password123' }
       });
-      const emp3Id = e3Reg.body.data.user._id;
-      const emp3Login = await makeRequest({ method: 'POST', path: '/api/auth/login', body: { email: emp3Email, password: 'Password123' } });
       const emp3Cookie = emp3Login.cookie;
+
+      const catRes = await makeRequest({
+        method: 'POST',
+        path: '/api/categories',
+        headers: { Cookie: adminCookie },
+        body: { name: `Workplace Skills ${ts}` }
+      });
+      const catId = catRes.body.data.category._id;
 
       // 3. Instructor creates Training
       console.log('\n3. Instructor Creating Course "Professional Communication & Workplace Skills"...');
@@ -177,14 +221,12 @@ async function runOverdueAndLockControlsE2ETest() {
 
       // 5. CASE 1: Harshita completes training -> Verify NO actions allowed for Completed
       console.log('\n5. [CASE 1] Harshita completes training (100%)...');
-      await makeRequest({
-        method: 'POST',
-        path: '/api/progress/complete-subsection',
-        headers: { Cookie: emp1Cookie },
-        body: { trainingAssignmentId: hAssignId, subSectionId: sub1Id }
+      await prisma.trainingAssignment.update({
+        where: { id: hAssignId },
+        data: { status: 'Completed', progressPercentage: 100 }
       });
 
-      const hDoc = await TrainingAssignment.findById(hAssignId);
+      const hDoc = await prisma.trainingAssignment.findUnique({ where: { id: hAssignId } });
       console.log('   Harshita Status:', hDoc.status, 'Progress:', hDoc.progressPercentage);
 
       // Verify Backend rejects Extend Deadline, Lock, and Unlock for Completed Harshita
@@ -219,16 +261,16 @@ async function runOverdueAndLockControlsE2ETest() {
       console.log('   Lock Lakshya Status:', lockLakshya.statusCode);
 
       // Verify Lakshya is locked
-      const lDoc = await TrainingAssignment.findById(lAssignId);
-      console.log('   Lakshya Lock State:', lDoc.lockStatus.isLocked, 'Status:', lDoc.status);
+      const lDoc = await prisma.trainingAssignment.findUnique({ where: { id: lAssignId } });
+      console.log('   Lakshya Lock State:', lDoc.isLocked, 'Status:', lDoc.status);
 
       // Verify Harshita and Aman are NOT locked (Per-Employee isolation)
-      const hCheck = await TrainingAssignment.findById(hAssignId);
-      const aCheck = await TrainingAssignment.findById(aAssignId);
-      console.log('   Harshita Locked?:', hCheck.lockStatus?.isLocked || false);
-      console.log('   Aman Locked?:', aCheck.lockStatus?.isLocked || false);
+      const hCheck = await prisma.trainingAssignment.findUnique({ where: { id: hAssignId } });
+      const aCheck = await prisma.trainingAssignment.findUnique({ where: { id: aAssignId } });
+      console.log('   Harshita Locked?:', hCheck.isLocked || false);
+      console.log('   Aman Locked?:', aCheck.isLocked || false);
 
-      if (lDoc.lockStatus.isLocked !== true || hCheck.lockStatus?.isLocked || aCheck.lockStatus?.isLocked) {
+      if (lDoc.isLocked !== true || hCheck.isLocked || aCheck.isLocked) {
         throw new Error('Per-employee lock isolation failed!');
       }
 
@@ -252,14 +294,17 @@ async function runOverdueAndLockControlsE2ETest() {
         path: `/api/assignments-engine/${lAssignId}/unlock`,
         headers: { Cookie: instCookie }
       });
-      const lUnlockedDoc = await TrainingAssignment.findById(lAssignId);
-      console.log('   Lakshya Unlocked State:', lUnlockedDoc.lockStatus.isLocked, 'Status:', lUnlockedDoc.status);
+      const lUnlockedDoc = await prisma.trainingAssignment.findUnique({ where: { id: lAssignId } });
+      console.log('   Lakshya Unlocked State:', lUnlockedDoc.isLocked, 'Status:', lUnlockedDoc.status);
 
       // 7. CASE 4, 5, 6: Aman (Overdue Employee) -> Lock, Unlock, Extend Deadline
       console.log('\n7. [CASE 4, 5, 6] Simulating Overdue status for Aman...');
-      await TrainingAssignment.findByIdAndUpdate(aAssignId, { deadline: new Date('2026-01-01'), status: 'Overdue' });
+      await prisma.trainingAssignment.update({
+        where: { id: aAssignId },
+        data: { deadline: new Date('2026-01-01'), status: 'Overdue' }
+      });
 
-      const aOverdueDoc = await TrainingAssignment.findById(aAssignId);
+      const aOverdueDoc = await prisma.trainingAssignment.findUnique({ where: { id: aAssignId } });
       console.log('   Aman Status:', aOverdueDoc.status, 'Deadline:', aOverdueDoc.deadline);
 
       // Lock Overdue Aman
@@ -271,8 +316,8 @@ async function runOverdueAndLockControlsE2ETest() {
         body: { reason: 'Overdue policy lock' }
       });
 
-      const aLockedDoc = await TrainingAssignment.findById(aAssignId);
-      console.log('   Aman Locked State:', aLockedDoc.lockStatus.isLocked, 'Status:', aLockedDoc.status);
+      const aLockedDoc = await prisma.trainingAssignment.findUnique({ where: { id: aAssignId } });
+      console.log('   Aman Locked State:', aLockedDoc.isLocked, 'Status:', aLockedDoc.status);
 
       // Unlock Overdue Aman -> Should revert to Overdue because deadline is in past
       console.log('   Unlocking Overdue Aman...');
@@ -282,8 +327,8 @@ async function runOverdueAndLockControlsE2ETest() {
         headers: { Cookie: instCookie }
       });
 
-      const aUnlockedDoc = await TrainingAssignment.findById(aAssignId);
-      console.log('   Aman Unlocked State:', aUnlockedDoc.lockStatus.isLocked, 'Status:', aUnlockedDoc.status);
+      const aUnlockedDoc = await prisma.trainingAssignment.findUnique({ where: { id: aAssignId } });
+      console.log('   Aman Unlocked State:', aUnlockedDoc.isLocked, 'Status:', aUnlockedDoc.status);
 
       if (aUnlockedDoc.status !== 'Overdue') {
         throw new Error('Unlocking overdue assignment failed to maintain Overdue status!');
@@ -298,12 +343,121 @@ async function runOverdueAndLockControlsE2ETest() {
         body: { newDeadline: '2026-12-31', reason: 'Extended after extension request' }
       });
 
-      const aExtendedDoc = await TrainingAssignment.findById(aAssignId);
+      const aExtendedDoc = await prisma.trainingAssignment.findUnique({ where: { id: aAssignId } });
       console.log('   Aman Status after Extension:', aExtendedDoc.status, 'Deadline:', aExtendedDoc.deadline);
 
       if (aExtendedDoc.status === 'Overdue' || aExtendedDoc.status === 'Locked') {
         throw new Error('Extending deadline failed to clear Overdue/Locked status!');
       }
+
+      // 8. BUG-025: Verify Inactive / Deactivated learner handling in Overdue & Lock Controls
+      console.log('\n8. [BUG-025] Testing Inactive / Deactivated Learner Filtering and Lock Prevention...');
+      
+      // Step A: Initially all active learners are returned in GET /api/assignments-engine/all
+      const allActiveRes = await makeRequest({
+        method: 'GET',
+        path: '/api/assignments-engine/all',
+        headers: { Cookie: instCookie }
+      });
+      console.log('   Active Roster Count:', allActiveRes.body.data.assignments.length);
+      const hasAmanActive = allActiveRes.body.data.assignments.some(a => (a.employeeId?._id || a.employeeId?.id) === emp3Id);
+      if (!hasAmanActive) {
+        throw new Error('Active learner Aman was unexpectedly missing from assignments list!');
+      }
+
+      // Step B: Admin deactivates Aman
+      console.log('   Admin deactivating Aman...');
+      const deactRes = await makeRequest({
+        method: 'PUT',
+        path: `/api/org/users/${emp3Id}/status`,
+        headers: { Cookie: adminCookie },
+        body: { status: 'deactivated' }
+      });
+      console.log('   Deactivate Aman Status:', deactRes.statusCode);
+
+      // Step C: Verify GET /api/assignments-engine/all excludes deactivated Aman
+      const rosterAfterDeact = await makeRequest({
+        method: 'GET',
+        path: '/api/assignments-engine/all',
+        headers: { Cookie: instCookie }
+      });
+      const hasAmanAfterDeact = rosterAfterDeact.body.data.assignments.some(a => (a.employeeId?._id || a.employeeId?.id) === emp3Id);
+      console.log('   Roster Count after Aman deactivation:', rosterAfterDeact.body.data.assignments.length);
+      console.log('   Is Deactivated Aman in Roster?:', hasAmanAfterDeact);
+      if (hasAmanAfterDeact) {
+        throw new Error('Deactivated learner Aman should NOT be present in assignments list!');
+      }
+
+      // Step D: Verify direct API attempt to lock deactivated Aman is blocked with 400
+      console.log('   Attempting to lock deactivated Aman directly via API...');
+      const lockDeactRes = await makeRequest({
+        method: 'PUT',
+        path: `/api/assignments-engine/${aAssignId}/lock`,
+        headers: { Cookie: instCookie },
+        body: { reason: 'Unauthorized lock attempt' }
+      });
+      console.log('   Lock Deactivated Aman Response Status (Expected 400):', lockDeactRes.statusCode);
+      console.log('   Lock Deactivated Error Message:', lockDeactRes.body.message);
+      if (lockDeactRes.statusCode !== 400) {
+        throw new Error(`Expected lock on deactivated learner to return 400, got ${lockDeactRes.statusCode}`);
+      }
+
+      // Step E: Verify training lock status preservation across deactivation and reactivation
+      console.log('   Testing lock status preservation across deactivation & reactivation for Lakshya...');
+      // Lock active Lakshya
+      await makeRequest({
+        method: 'PUT',
+        path: `/api/assignments-engine/${lAssignId}/lock`,
+        headers: { Cookie: instCookie },
+        body: { reason: 'Pre-deactivation lock' }
+      });
+      const lPreDeactDoc = await prisma.trainingAssignment.findUnique({ where: { id: lAssignId } });
+      console.log('   Lakshya locked prior to deactivation:', lPreDeactDoc.isLocked);
+
+      // Deactivate Lakshya
+      await makeRequest({
+        method: 'PUT',
+        path: `/api/org/users/${emp2Id}/status`,
+        headers: { Cookie: adminCookie },
+        body: { status: 'deactivated' }
+      });
+
+      // Verify lock status remains preserved in DB
+      const lDuringDeactDoc = await prisma.trainingAssignment.findUnique({ where: { id: lAssignId } });
+      console.log('   Lakshya lock preserved during deactivation:', lDuringDeactDoc.isLocked);
+      if (lDuringDeactDoc.isLocked !== true) {
+        throw new Error('Training lock was erroneously removed when learner was deactivated!');
+      }
+
+      // Reactivate Lakshya
+      await makeRequest({
+        method: 'PUT',
+        path: `/api/org/users/${emp2Id}/status`,
+        headers: { Cookie: adminCookie },
+        body: { status: 'active' }
+      });
+
+      // Verify Lakshya is back in the roster with lock preserved
+      const rosterAfterReact = await makeRequest({
+        method: 'GET',
+        path: '/api/assignments-engine/all',
+        headers: { Cookie: instCookie }
+      });
+      const lakshyaAfterReact = rosterAfterReact.body.data.assignments.find(a => (a.employeeId?._id || a.employeeId?.id) === emp2Id);
+      console.log('   Lakshya in roster after reactivation:', Boolean(lakshyaAfterReact));
+      console.log('   Lakshya lock preserved in roster:', lakshyaAfterReact?.isLocked || lakshyaAfterReact?.status === 'Locked');
+      if (!lakshyaAfterReact || !(lakshyaAfterReact.isLocked || lakshyaAfterReact.status === 'Locked')) {
+        throw new Error('Reactivated learner should appear in roster with previous lock status preserved!');
+      }
+
+      // Unlock reactivated Lakshya
+      await makeRequest({
+        method: 'PUT',
+        path: `/api/assignments-engine/${lAssignId}/unlock`,
+        headers: { Cookie: instCookie }
+      });
+      const lFinalDoc = await prisma.trainingAssignment.findUnique({ where: { id: lAssignId } });
+      console.log('   Lakshya successfully unlocked after reactivation:', !lFinalDoc.isLocked);
 
       console.log('\n🎉 INSTRUCTOR OVERDUE & PER-EMPLOYEE LOCK CONTROLS E2E TEST PASSED PERFECTLY! 🎉');
       server.close(() => process.exit(0));

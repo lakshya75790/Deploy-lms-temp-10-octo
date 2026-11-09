@@ -5,7 +5,8 @@ import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
 import { useNotification } from '../../context/NotificationContext';
-import { Building2, Plus, Edit2, Trash2, Briefcase, Check, X, Tag } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Briefcase, Check, X, Tag, AlertTriangle, Power, AlertCircle } from 'lucide-react';
+import { validateGroupName, validateGroupDescription } from '../../utils/userValidation';
 
 export const Departments = () => {
   const { addToast } = useNotification();
@@ -20,6 +21,11 @@ export const Departments = () => {
   const [roleInput, setRoleInput] = useState('');
   const [jobRoles, setJobRoles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({ name: '', description: '' });
+
+  // Deactivation confirmation modal state
+  const [deptToDeactivate, setDeptToDeactivate] = useState(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   const fetchDepts = async () => {
     try {
@@ -43,6 +49,7 @@ export const Departments = () => {
     setDescription('');
     setJobRoles([]);
     setRoleInput('');
+    setFieldErrors({ name: '', description: '' });
     setShowModal(true);
   };
 
@@ -52,6 +59,7 @@ export const Departments = () => {
     setDescription(dept.description || '');
     setJobRoles(dept.jobRoles || []);
     setRoleInput('');
+    setFieldErrors({ name: '', description: '' });
     setShowModal(true);
   };
 
@@ -77,9 +85,15 @@ export const Departments = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const cleanName = name.trim();
-    if (!cleanName) {
-      addToast('error', 'Group name is required');
-      return;
+    const cleanDesc = description.trim();
+
+    const errors = {};
+    const nameErr = validateGroupName(cleanName);
+    if (nameErr) errors.name = nameErr;
+
+    if (cleanDesc) {
+      const descErr = validateGroupDescription(cleanDesc);
+      if (descErr) errors.description = descErr;
     }
 
     const targetId = editingDept ? (editingDept._id || editingDept.id) : null;
@@ -89,14 +103,19 @@ export const Departments = () => {
     );
 
     if (isDuplicate) {
-      addToast('error', `Group '${cleanName}' already exists. Please use a different name.`);
+      errors.name = `Group '${cleanName}' already exists. Please use a different name.`;
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      addToast('error', Object.values(errors)[0]);
       return;
     }
 
     setSubmitting(true);
     try {
       if (editingDept) {
-        const res = await updateDepartment(targetId, { name: cleanName, description: description.trim(), jobRoles });
+        const res = await updateDepartment(targetId, { name: cleanName, description: cleanDesc || null, jobRoles });
         const updated = res.data?.data?.department;
         if (updated) {
           const updatedDept = {
@@ -111,7 +130,7 @@ export const Departments = () => {
         addToast('success', 'Group updated successfully');
         invalidateQueries(['departments', 'admin-dashboard']);
       } else {
-        const res = await createDepartment({ name: cleanName, description: description.trim(), jobRoles });
+        const res = await createDepartment({ name: cleanName, description: cleanDesc || null, jobRoles });
         const created = res.data?.data?.department;
         if (created) {
           const newDept = {
@@ -128,21 +147,53 @@ export const Departments = () => {
       }
       setShowModal(false);
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Action failed');
+      const serverErrors = err.response?.data?.errors;
+      const serverMsg = err.response?.data?.message || 'Action failed';
+      const mapped = {};
+      if (Array.isArray(serverErrors) && serverErrors.length > 0) {
+        serverErrors.forEach((item) => {
+          if (item.field) {
+            mapped[item.field] = item.message;
+          }
+        });
+      } else if (typeof serverMsg === 'string') {
+        const lower = serverMsg.toLowerCase();
+        if (lower.includes('name') || lower.includes('exists')) {
+          mapped.name = serverMsg;
+        } else if (lower.includes('description')) {
+          mapped.description = serverMsg;
+        }
+      }
+      setFieldErrors(prev => ({ ...prev, ...mapped }));
+      addToast('error', serverMsg);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to deactivate this group?')) return;
+  const openDeactivateModal = (dept) => {
+    setDeptToDeactivate(dept);
+  };
+
+  const closeDeactivateModal = () => {
+    if (deactivating) return;
+    setDeptToDeactivate(null);
+  };
+
+  const handleConfirmDeactivate = async () => {
+    if (!deptToDeactivate || deactivating) return;
+    const targetId = deptToDeactivate._id || deptToDeactivate.id;
+    setDeactivating(true);
     try {
-      await deleteDepartment(id);
-      setDepartments(prev => prev.filter(d => (d._id || d.id) !== id));
-      addToast('success', 'Group deleted');
+      await deleteDepartment(targetId);
+      setDepartments(prev => prev.filter(d => (d._id || d.id) !== targetId));
+      addToast('success', `Group "${deptToDeactivate.name}" deactivated successfully`);
       invalidateQueries(['departments', 'admin-dashboard']);
+      setDeptToDeactivate(null);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to deactivate group');
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -183,30 +234,42 @@ export const Departments = () => {
           {departments.map((d) => {
             const deptId = d._id || d.id;
             return (
-              <div key={deptId} className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4 relative flex flex-col justify-between transition-all hover:shadow-md">
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+              <div
+                key={deptId}
+                className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between space-y-4 transition-all hover:shadow-md hover:border-slate-300 min-w-0"
+              >
+                <div className="space-y-3 min-w-0">
+                  {/* Card Header: Icon + Name + Action Buttons */}
+                  <div className="flex items-start justify-between gap-3 min-w-0">
+                    <div className="flex items-start space-x-3 min-w-0 flex-1">
+                      <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0 mt-0.5">
                         <Building2 className="w-5 h-5" />
                       </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 text-base">{d.name}</h3>
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 uppercase tracking-wider">Active</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h3
+                          className="font-bold text-slate-900 text-base leading-snug break-words [overflow-wrap:anywhere] line-clamp-2"
+                          title={d.name}
+                        >
+                          {d.name}
+                        </h3>
+                        <span className="inline-flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 uppercase tracking-wider shrink-0">
+                          Active
+                        </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-1">
+                    {/* Action Buttons */}
+                    <div className="flex items-center space-x-1 shrink-0 pt-0.5">
                       <button
                         onClick={() => openEditModal(d)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
                         title="Edit Group"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(deptId)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        onClick={() => openDeactivateModal(d)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
                         title="Deactivate Group"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -214,22 +277,31 @@ export const Departments = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-600 leading-relaxed">
+                  {/* Group Description */}
+                  <p
+                    className="text-xs text-slate-600 leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-3"
+                    title={d.description || 'No group description provided.'}
+                  >
                     {d.description || 'No group description provided.'}
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 space-y-2">
+                {/* Footer: Mapped Roles */}
+                <div className="pt-4 border-t border-slate-100 space-y-2 min-w-0">
                   <p className="text-[11px] font-semibold text-slate-700 flex items-center">
-                    <Briefcase className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                    <Briefcase className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" />
                     Mapped Roles ({d.jobRoles?.length || 0}):
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 max-w-full">
                     {(!d.jobRoles || d.jobRoles.length === 0) ? (
                       <span className="text-[11px] text-slate-400 italic">No roles mapped yet.</span>
                     ) : (
                       d.jobRoles.map((role) => (
-                        <span key={role} className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700">
+                        <span
+                          key={role}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 break-words [overflow-wrap:anywhere] max-w-full"
+                          title={role}
+                        >
                           {role}
                         </span>
                       ))
@@ -244,32 +316,66 @@ export const Departments = () => {
 
       {/* Create/Edit Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingDept ? 'Edit Group Details' : 'Create New Group'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Group Name <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Group Name <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400">2–60 characters</span>
+            </div>
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: '' }));
+              }}
               required
+              maxLength={60}
               placeholder="e.g. Engineering, Class 10-A, JEE Morning Batch"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+              className={`w-full px-4 py-2.5 rounded-xl border bg-white text-sm text-slate-900 outline-none transition-all ${
+                fieldErrors.name
+                  ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                  : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+              }`}
             />
+            {fieldErrors.name && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {fieldErrors.name}
+              </p>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Description (Optional)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Description (Optional)
+              </label>
+              <span className="text-[10px] text-slate-400">{description.length}/300</span>
+            </div>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (fieldErrors.description) setFieldErrors((prev) => ({ ...prev, description: '' }));
+              }}
               rows={3}
+              maxLength={300}
               placeholder="Brief description of group scope and responsibilities..."
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none resize-none"
+              className={`w-full px-4 py-2.5 rounded-xl border bg-white text-sm text-slate-900 outline-none resize-none transition-all ${
+                fieldErrors.description
+                  ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                  : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+              }`}
             />
+            {fieldErrors.description && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {fieldErrors.description}
+              </p>
+            )}
           </div>
 
           <div>
@@ -334,6 +440,54 @@ export const Departments = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Deactivate Group Confirmation Modal */}
+      <Modal
+        isOpen={!!deptToDeactivate}
+        onClose={closeDeactivateModal}
+        title="Deactivate Group"
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-900 space-y-2">
+              <p className="font-bold text-sm">
+                Are you sure you want to deactivate this group?
+              </p>
+              <p>
+                You are about to deactivate{' '}
+                <strong className="font-bold text-slate-900">{deptToDeactivate?.name}</strong>.
+              </p>
+              <div className="pt-1 text-[11px] text-amber-800 space-y-1">
+                <p>• Learners assigned to this group will no longer receive new automated course assignments for this group.</p>
+                <p>• Historical course completions, certificates, and learning records will remain safely preserved.</p>
+                <p>• This group will be hidden from active learner and instructor assignment menus.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-end space-x-3">
+            <button
+              type="button"
+              disabled={deactivating}
+              onClick={closeDeactivateModal}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={deactivating}
+              onClick={handleConfirmDeactivate}
+              className="px-5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer flex items-center transition-colors disabled:opacity-50"
+            >
+              <Power className="w-3.5 h-3.5 mr-1.5" />
+              {deactivating ? 'Deactivating...' : 'Deactivate Group'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

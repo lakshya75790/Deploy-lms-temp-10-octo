@@ -6,7 +6,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { formatDisplayText } from '../../utils/formatters';
 import { ProfileModal } from '../profile/ProfileModal';
 import { ChangePasswordModal } from '../profile/ChangePasswordModal';
-import { Bell, User, KeyRound, LogOut, CheckCheck, Sparkles, Building, Menu, GraduationCap, Sun, Moon } from 'lucide-react';
+import { ConfirmationModal } from './ConfirmationModal';
+import { Bell, Check, User, KeyRound, LogOut, CheckCheck, Sparkles, Building, Menu, GraduationCap, Sun, Moon } from 'lucide-react';
 
 export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
   const navigate = useNavigate();
@@ -18,6 +19,21 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
   const [showPassModal, setShowPassModal] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleConfirmLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutModal(false);
+    }
+  };
 
   const notifRef = useRef(null);
   const userRef = useRef(null);
@@ -129,18 +145,18 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
 
               {/* Notifications Dropdown Panel */}
               {showNotifDropdown && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-fade-in">
-                  <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/70">
-                    <div className="flex items-center space-x-2">
-                      <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">Notifications</h4>
+                <div className="fixed sm:absolute top-16 sm:top-full mt-2 left-3 right-3 sm:left-auto sm:right-0 max-w-[calc(100vw-1.5rem)] sm:max-w-none sm:w-96 mx-auto sm:mx-0 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-fade-in flex flex-col max-h-[calc(100vh-5rem)]">
+                  <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/70 shrink-0">
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">Notifications</h4>
                     </div>
                     {unreadCount > 0 && (
                       <button
                         onClick={markAllRead}
-                        className="text-xs text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 font-semibold flex items-center transition-colors cursor-pointer"
+                        className="text-xs text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 font-semibold flex items-center transition-colors cursor-pointer shrink-0 ml-2"
                       >
-                        <CheckCheck className="w-3.5 h-3.5 mr-1" />
+                        <CheckCheck className="w-3.5 h-3.5 mr-1 shrink-0" />
                         Mark all read
                       </button>
                     )}
@@ -155,16 +171,42 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                       notifications.map((n) => (
                         <div
                           key={n.id || n._id}
-                          onClick={() => markAsRead(n.id || n._id)}
-                          className={`p-3.5 text-xs transition-colors cursor-pointer ${
+                          onClick={() => {
+                            setShowNotifDropdown(false);
+                            if (n.action_url) {
+                              navigate(n.action_url);
+                            } else if (n.type?.includes('ASSIGNMENT') && user?.role === 'Instructor') {
+                              navigate('/instructor/submissions');
+                            }
+                          }}
+                          className={`group relative p-3.5 text-xs transition-colors cursor-pointer ${
                             !n.isRead
                               ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-l-3 border-emerald-600 dark:border-emerald-500 hover:bg-emerald-100/50 dark:hover:bg-emerald-950/60'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                           }`}
                         >
-                          <h5 className="font-semibold text-slate-900 dark:text-slate-100 mb-0.5">{formatDisplayText(n.title)}</h5>
-                          <p className="text-slate-600 dark:text-slate-300 mb-1 leading-relaxed">{formatDisplayText(n.message)}</p>
-                          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h5 className="font-semibold text-slate-900 dark:text-slate-100 break-words flex-1 min-w-0">
+                              {formatDisplayText(n.title)}
+                            </h5>
+                            {!n.isRead && (
+                              <button
+                                type="button"
+                                title="Mark as Read"
+                                aria-label="Mark as Read"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markAsRead(n.id || n._id);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-150 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:hover:bg-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 cursor-pointer shrink-0"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Mark as Read</span>
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-slate-600 dark:text-slate-300 mb-1 leading-relaxed break-words">{formatDisplayText(n.message)}</p>
+                          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 block">
                             {new Date(n.createdAt).toLocaleDateString()} {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
@@ -172,7 +214,7 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                     )}
                   </div>
 
-                  <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/70 text-center">
+                  <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/70 text-center shrink-0">
                     <button
                       onClick={() => {
                         setShowNotifDropdown(false);
@@ -246,7 +288,10 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
 
                 <div className="pt-1 border-t border-slate-100 dark:border-slate-800 mt-1">
                   <button
-                    onClick={logout}
+                    onClick={() => {
+                      setShowUserDropdown(false);
+                      setShowLogoutModal(true);
+                    }}
                     className="w-full flex items-center px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                   >
                     <LogOut className="w-4 h-4 mr-2" />
@@ -262,6 +307,20 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
       {/* Modals */}
       <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <ChangePasswordModal isOpen={showPassModal} onClose={() => setShowPassModal(false)} />
+      <ConfirmationModal
+        isOpen={showLogoutModal}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
+        onConfirm={handleConfirmLogout}
+        title="Confirm Logout"
+        message="Are you sure you want to log out?"
+        confirmText="Logout"
+        cancelText="Cancel"
+        variant="danger"
+        icon={LogOut}
+        loading={isLoggingOut}
+        closeOnBackdropClick={false}
+        closeOnEscape={false}
+      />
     </>
   );
 };

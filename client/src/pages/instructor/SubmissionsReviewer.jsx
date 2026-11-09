@@ -3,6 +3,7 @@ import { getInstructorSubmissions, getTrainings, reviewSubmission } from '../../
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
+import { CustomSelectDropdown } from '../../components/common/CustomSelectDropdown';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
 import {
@@ -14,6 +15,24 @@ import {
   Code2,
   Download
 } from 'lucide-react';
+
+const getDisplayFileName = (submission) => {
+  if (submission?.originalFilename) return submission.originalFilename;
+  if (submission?.originalName) return submission.originalName;
+  if (submission?.fileName) return submission.fileName;
+  if (submission?.fileUrl) {
+    try {
+      const urlParts = submission.fileUrl.split('/');
+      const rawName = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
+      if (rawName && rawName.trim()) {
+        return rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return 'Submitted_Document.pdf';
+};
 
 export const SubmissionsReviewer = () => {
   const { addToast } = useNotification();
@@ -90,32 +109,34 @@ export const SubmissionsReviewer = () => {
   const pendingCount = submissions.filter(s => s.status === 'submitted').length;
   const reviewedCount = submissions.filter(s => s.status === 'reviewed').length;
 
+  const trainingOptions = [
+    { value: 'all', label: 'All Trainings' },
+    ...trainings.map(t => ({ value: t._id, label: t.title }))
+  ];
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
       {/* Header Bar */}
       <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-xs font-semibold text-teal-700 mb-2">
             <Sparkles className="w-3.5 h-3.5 mr-1.5 text-teal-600" /> Instructor Evaluation Hub
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Project Submissions & Grading Studio</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading break-words">Project Submissions & Grading Studio</h1>
           <p className="text-xs text-slate-500">
             Review learner code repositories, evaluate project submissions, assign qualitative grades, and provide feedback.
           </p>
         </div>
 
         {/* Training Filter Dropdown */}
-        <div className="max-w-xs w-full">
-          <select
+        <div className="w-full sm:w-72 md:w-80 max-w-full shrink-0">
+          <CustomSelectDropdown
+            options={trainingOptions}
             value={selectedTrainingId}
-            onChange={(e) => setSelectedTrainingId(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:border-teal-600 outline-none cursor-pointer"
-          >
-            <option value="all">All Trainings</option>
-            {trainings.map(t => (
-              <option key={t._id} value={t._id}>{t.title}</option>
-            ))}
-          </select>
+            onChange={(val) => setSelectedTrainingId(val)}
+            placeholder="All Trainings"
+            accentColor="teal"
+          />
         </div>
       </div>
 
@@ -329,25 +350,41 @@ export const SubmissionsReviewer = () => {
                 </p>
 
                 {activeSubmission?.submissionType === 'github' && activeSubmission?.githubUrl && (
-                  <a
-                    href={activeSubmission.githubUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-teal-700 font-mono underline font-semibold flex items-center hover:opacity-80 pt-1"
-                  >
-                    <Code2 className="w-3.5 h-3.5 mr-1.5" /> {activeSubmission.githubUrl} <ExternalLink className="w-3 h-3 ml-1" />
-                  </a>
+                  <div className="pt-2">
+                    <span className="text-[11px] text-slate-500 font-semibold block mb-1">
+                      Submitted Repository:
+                    </span>
+                    <a
+                      href={activeSubmission.githubUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 text-xs font-semibold transition-colors group cursor-pointer"
+                      title="Open GitHub Repository"
+                    >
+                      <Code2 className="w-3.5 h-3.5 mr-1.5 text-teal-600 shrink-0" />
+                      <span className="truncate max-w-xs sm:max-w-md font-mono">{activeSubmission.githubUrl}</span>
+                      <ExternalLink className="w-3 h-3 ml-1.5 text-teal-500 shrink-0" />
+                    </a>
+                  </div>
                 )}
 
                 {activeSubmission?.submissionType === 'file' && activeSubmission?.fileUrl && (
-                  <a
-                    href={activeSubmission.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-700 font-mono underline font-semibold flex items-center hover:opacity-80 pt-1"
-                  >
-                    <Download className="w-3.5 h-3.5 mr-1.5" /> View File: {activeSubmission.fileUrl} <ExternalLink className="w-3 h-3 ml-1" />
-                  </a>
+                  <div className="pt-2">
+                    <span className="text-[11px] text-slate-500 font-semibold block mb-1">
+                      Submitted File:
+                    </span>
+                    <a
+                      href={activeSubmission.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-semibold transition-colors group cursor-pointer"
+                      title="Download / View Submitted File"
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1.5 text-emerald-600 group-hover:translate-y-0.5 transition-transform shrink-0" />
+                      <span className="truncate max-w-xs sm:max-w-md font-mono">{getDisplayFileName(activeSubmission)}</span>
+                      <ExternalLink className="w-3 h-3 ml-1.5 text-emerald-500 shrink-0" />
+                    </a>
+                  </div>
                 )}
               </div>
             </div>

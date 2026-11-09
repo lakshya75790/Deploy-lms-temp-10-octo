@@ -16,6 +16,8 @@ import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
 import { useNotification } from '../../context/NotificationContext';
 import { formatAssignmentType, formatDate } from '../../utils/formatters';
+import { CourseSelectDropdown } from '../../components/common/CourseSelectDropdown';
+import { CustomSelectDropdown } from '../../components/common/CustomSelectDropdown';
 import {
   Zap,
   Target,
@@ -68,7 +70,46 @@ export const AssignTraining = () => {
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [customDeadline, setCustomDeadline] = useState('');
+  const [dateError, setDateError] = useState('');
+  const [deactivatedWarning, setDeactivatedWarning] = useState('');
   const [submittingTargeted, setSubmittingTargeted] = useState(false);
+
+  // Compute today's date in YYYY-MM-DD format for input min constraint
+  const getMinDateString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const validateDeadline = (dateVal) => {
+    if (!dateVal) return '';
+    const parts = dateVal.split('-');
+    if (parts.length !== 3) {
+      return 'Please enter a valid completion deadline date';
+    }
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const selectedDate = new Date(year, month, day, 23, 59, 59, 999);
+    if (isNaN(selectedDate.getTime())) {
+      return 'Please enter a valid completion deadline date';
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate < today) {
+      return 'Completion deadline cannot be in the past. Please select today or a future date.';
+    }
+    return '';
+  };
+
+  const handleDateChange = (e) => {
+    const val = e.target.value;
+    setCustomDeadline(val);
+    const err = validateDeadline(val);
+    setDateError(err);
+  };
 
   const fetchAllData = async () => {
     try {
@@ -122,15 +163,17 @@ export const AssignTraining = () => {
   }, [departmentId, departments, employees]);
 
   // Department selection handler
-  const handleDeptChange = (e) => {
-    const dId = e.target.value;
+  const handleDeptChange = (val) => {
+    const dId = val?.target?.value !== undefined ? val.target.value : val;
     setDepartmentId(dId);
     setJobRole('ALL_ROLES');
   };
 
-  // Filter employees for Department + Job Role match count
+  // Filter employees for Department + Job Role match count (active learners only)
   const matchedDeptRoleEmployees = employees.filter(emp => {
     if (!departmentId) return false;
+    const isActive = emp.status && emp.status.toLowerCase() === 'active';
+    if (!isActive) return false;
     const empDeptId = typeof emp.departmentId === 'object' ? emp.departmentId?._id : emp.departmentId;
     if (String(empDeptId) !== String(departmentId)) return false;
     if (jobRole && jobRole !== 'ALL_ROLES' && emp.jobRole !== jobRole) return false;
@@ -149,18 +192,46 @@ export const AssignTraining = () => {
 
   // Individual employee checkbox handlers
   const handleToggleEmployee = (id) => {
+    const targetEmp = employees.find(e => String(e._id) === String(id));
+    if (targetEmp && targetEmp.status && targetEmp.status.toLowerCase() !== 'active') {
+      const msg = `User ${targetEmp.name} is currently deactivated/blocked and cannot be assigned courses`;
+      setDeactivatedWarning(msg);
+      addToast('error', msg);
+      return;
+    }
+    setDeactivatedWarning('');
     setSelectedEmployeeIds(prev =>
       prev.includes(id) ? prev.filter(eId => eId !== id) : [...prev, id]
     );
   };
 
   const handleSelectAllEmployees = () => {
-    const visibleIds = filteredEmployeesForSelection.map(e => e._id);
+    const visibleActive = filteredEmployeesForSelection.filter(
+      e => e.status && e.status.toLowerCase() === 'active'
+    );
+    const inactiveInFiltered = filteredEmployeesForSelection.filter(
+      e => e.status && e.status.toLowerCase() !== 'active'
+    );
+
+    if (visibleActive.length === 0 && inactiveInFiltered.length > 0) {
+      const msg = `User ${inactiveInFiltered[0].name} is currently deactivated/blocked and cannot be assigned courses`;
+      setDeactivatedWarning(msg);
+      addToast('error', msg);
+      return;
+    }
+
+    if (inactiveInFiltered.length > 0) {
+      addToast('info', `Excluded ${inactiveInFiltered.length} deactivated/blocked learner(s) from selection.`);
+    }
+
+    setDeactivatedWarning('');
+    const visibleIds = visibleActive.map(e => e._id);
     setSelectedEmployeeIds(Array.from(new Set([...selectedEmployeeIds, ...visibleIds])));
   };
 
   const handleClearEmployeeSelection = () => {
     setSelectedEmployeeIds([]);
+    setDeactivatedWarning('');
   };
 
   // SUBMIT TAB 1: Auto Assignment
@@ -256,6 +327,26 @@ export const AssignTraining = () => {
         addToast('error', 'Please select at least one learner from the list');
         return;
       }
+
+      // Check if any selected learner account is deactivated or blocked
+      const deactivatedTarget = employees.find(
+        e => selectedEmployeeIds.includes(e._id) && e.status && e.status.toLowerCase() !== 'active'
+      );
+      if (deactivatedTarget) {
+        const msg = `User ${deactivatedTarget.name} is currently deactivated/blocked and cannot be assigned courses`;
+        setDeactivatedWarning(msg);
+        addToast('error', msg);
+        return;
+      }
+    }
+
+    if (customDeadline) {
+      const err = validateDeadline(customDeadline);
+      if (err) {
+        setDateError(err);
+        addToast('error', err);
+        return;
+      }
     }
 
     setSubmittingTargeted(true);
@@ -278,6 +369,8 @@ export const AssignTraining = () => {
       setJobRole('ALL_ROLES');
       setSelectedEmployeeIds([]);
       setCustomDeadline('');
+      setDateError('');
+      setDeactivatedWarning('');
       setEmployeeSearch('');
 
       fetchAllData();
@@ -394,21 +487,16 @@ export const AssignTraining = () => {
               <form onSubmit={handleAutoSubmit} className="space-y-4 max-w-3xl">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Select Published Training Course *
+                    Select Published Training Course <span className="text-rose-500">*</span>
                   </label>
-                  <select
+                  <CourseSelectDropdown
+                    trainings={trainings}
                     value={autoTrainingId}
-                    onChange={(e) => setAutoTrainingId(e.target.value)}
+                    onChange={(id) => setAutoTrainingId(id)}
+                    placeholder="Choose Mandatory Published Course"
                     required
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
-                  >
-                    <option value="">Choose Mandatory Published Course</option>
-                    {trainings.map(t => (
-                      <option key={t._id} value={t._id}>
-                        {t.title} ({t.category?.name || 'General'})
-                      </option>
-                    ))}
-                  </select>
+                    accentColor="indigo"
+                  />
                 </div>
 
                 <div>
@@ -570,21 +658,16 @@ export const AssignTraining = () => {
               {/* STEP 1: Select Training */}
               <div className="space-y-2 p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200">
                 <label className="block text-xs font-bold uppercase tracking-wider text-emerald-700">
-                  STEP 1 — Select Published Training Course *
+                  STEP 1 — Select Published Training Course <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <CourseSelectDropdown
+                  trainings={trainings}
                   value={targetedTrainingId}
-                  onChange={(e) => setTargetedTrainingId(e.target.value)}
+                  onChange={(id) => setTargetedTrainingId(id)}
+                  placeholder="Choose Published Course"
                   required
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
-                >
-                  <option value="">Choose Published Course</option>
-                  {trainings.map(t => (
-                    <option key={t._id} value={t._id}>
-                      {t.title} ({t.category?.name || 'General'})
-                    </option>
-                  ))}
-                </select>
+                  accentColor="emerald"
+                />
               </div>
 
               {/* STEP 2: Assignment Target Mode */}
@@ -653,47 +736,43 @@ export const AssignTraining = () => {
                 {targetMode === 'dept_role' ? (
                   <div className="space-y-4 pt-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <div className="min-w-0 w-full">
+                        <label htmlFor="target-group-select" className="block text-xs font-semibold text-slate-700 mb-1.5">
                           Select Group *
                         </label>
-                        <select
+                        <CustomSelectDropdown
+                          id="target-group-select"
+                          options={departments.map(d => ({ value: d._id, label: d.name }))}
                           value={departmentId}
                           onChange={handleDeptChange}
+                          placeholder="Choose Group"
                           required={targetMode === 'dept_role'}
-                          className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
-                        >
-                          <option value="">Choose Group</option>
-                          {departments.map(d => (
-                            <option key={d._id} value={d._id}>{d.name}</option>
-                          ))}
-                        </select>
+                          accentColor="emerald"
+                        />
                       </div>
 
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <div className="min-w-0 w-full">
+                        <label htmlFor="target-role-select" className="block text-xs font-semibold text-slate-700 mb-1.5">
                           Select Role *
                         </label>
-                        <select
+                        <CustomSelectDropdown
+                          id="target-role-select"
+                          options={
+                            !departmentId
+                              ? []
+                              : [
+                                  { value: 'ALL_ROLES', label: 'All Roles in Group' },
+                                  ...availableJobRoles.map(r => ({ value: r, label: r }))
+                                ]
+                          }
                           value={jobRole}
-                          onChange={(e) => setJobRole(e.target.value)}
-                          required={targetMode === 'dept_role'}
+                          onChange={(val) => setJobRole(val)}
+                          placeholder="Select Role"
                           disabled={!departmentId}
-                          className={`w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 outline-none ${
-                            !departmentId ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                          }`}
-                        >
-                          {!departmentId ? (
-                            <option value="">Select Group First</option>
-                          ) : (
-                            <>
-                              <option value="ALL_ROLES">All Roles in Group</option>
-                              {availableJobRoles.map(r => (
-                                <option key={r} value={r}>{r}</option>
-                              ))}
-                            </>
-                          )}
-                        </select>
+                          disabledPlaceholder="Select Group First"
+                          required={targetMode === 'dept_role'}
+                          accentColor="indigo"
+                        />
                       </div>
                     </div>
 
@@ -749,6 +828,23 @@ export const AssignTraining = () => {
                         />
                       </div>
 
+                      {/* Deactivated User Inline Warning Banner */}
+                      {deactivatedWarning && (
+                        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between animate-fade-in">
+                          <div className="flex items-center space-x-2">
+                            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>{deactivatedWarning}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDeactivatedWarning('')}
+                            className="text-rose-500 hover:text-rose-700 text-xs cursor-pointer font-bold px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
                       {/* Employee List with Checkboxes */}
                       <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
                         {filteredEmployeesForSelection.length === 0 ? (
@@ -756,20 +852,26 @@ export const AssignTraining = () => {
                         ) : (
                           filteredEmployeesForSelection.map((emp) => {
                             const isSelected = selectedEmployeeIds.includes(emp._id);
+                            const isDeactivated = emp.status && emp.status.toLowerCase() !== 'active';
                             return (
                               <div
                                 key={emp._id}
                                 onClick={() => handleToggleEmployee(emp._id)}
                                 className={`p-3 text-xs flex items-center justify-between cursor-pointer transition-colors ${
-                                  isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                                  isDeactivated
+                                    ? 'bg-slate-50/70 opacity-75 hover:bg-rose-50/40'
+                                    : isSelected
+                                    ? 'bg-indigo-50'
+                                    : 'hover:bg-slate-50'
                                 }`}
                               >
                                 <div className="flex items-center space-x-3">
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
+                                    disabled={isDeactivated}
                                     onChange={() => handleToggleEmployee(emp._id)}
-                                    className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                                    className="w-4 h-4 text-indigo-600 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                                   />
                                   <img
                                     src={emp.profilePicture || `https://api.dicebear.com/7.x/initials/svg?seed=${emp.name}`}
@@ -777,7 +879,14 @@ export const AssignTraining = () => {
                                     className="w-8 h-8 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
                                   />
                                   <div>
-                                    <p className="font-bold text-slate-900">{emp.name}</p>
+                                    <div className="flex items-center gap-1.5">
+                                      <p className={`font-bold ${isDeactivated ? 'text-slate-600 line-through' : 'text-slate-900'}`}>{emp.name}</p>
+                                      {isDeactivated && (
+                                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
+                                          Deactivated
+                                        </span>
+                                      )}
+                                    </div>
                                     <p className="text-[11px] text-slate-500">{emp.email}</p>
                                   </div>
                                 </div>
@@ -800,18 +909,33 @@ export const AssignTraining = () => {
 
               {/* STEP 3: Completion Deadline */}
               <div className="space-y-2 p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                <label className="block text-xs font-bold uppercase tracking-wider text-emerald-700">
-                  STEP 3 — Custom Completion Deadline (Optional)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-emerald-700">
+                    STEP 3 — Custom Completion Deadline (Optional)
+                  </label>
+                  <span className="text-[10px] text-slate-400">Today or future date</span>
+                </div>
                 <input
                   type="date"
+                  min={getMinDateString()}
                   value={customDeadline}
-                  onChange={(e) => setCustomDeadline(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                  onChange={handleDateChange}
+                  className={`w-full px-4 py-2.5 rounded-xl border bg-white text-sm text-slate-900 outline-none transition-all ${
+                    dateError
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                      : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                  }`}
                 />
-                <p className="text-xs text-slate-500">
-                  If left blank, the default deadline (30 days) will be automatically applied.
-                </p>
+                {dateError ? (
+                  <p className="text-xs text-rose-500 font-medium flex items-center gap-1.5 mt-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {dateError}
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    If left blank, the default deadline (30 days) will be automatically applied.
+                  </p>
+                )}
               </div>
 
               {/* STEP 4: Dispatch Button */}
@@ -890,7 +1014,14 @@ export const AssignTraining = () => {
                           className="w-7 h-7 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
                         />
                         <div>
-                          <p className="font-bold text-slate-900">{a.employeeId?.name || 'Learner'}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-slate-900">{a.employeeId?.name || 'Learner'}</p>
+                            {a.employeeId?.status && a.employeeId.status.toLowerCase() !== 'active' && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">
+                                Deactivated
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] text-slate-400">{a.employeeId?.email}</p>
                         </div>
                       </div>

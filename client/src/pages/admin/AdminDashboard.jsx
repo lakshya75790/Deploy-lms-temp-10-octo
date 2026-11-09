@@ -35,6 +35,58 @@ const renderAuditDetails = (details) => {
   if (!details) return <span className="text-slate-400 italic">No details provided</span>;
 
   const formattedDetailsStr = formatDisplayText(details);
+
+  // 1. "Create Organization" pattern matching:
+  // e.g. Organization "XYZ" (CODE) created with N total licenses, license period (START to END), and Admin "EMAIL"
+  const createOrgMatch = formattedDetailsStr.match(
+    /^Organization\s+"([^"]+)"(?:\s*\(([^)]+)\))?\s*created with\s*(\d+)\s*total licenses(?:,\s*license period\s*\(([^)]+)\))?(?:,\s*and Admin\s*"([^"]+)")?/i
+  );
+
+  if (createOrgMatch) {
+    const orgName = createOrgMatch[1];
+    const orgCode = createOrgMatch[2];
+    const totalLicenses = createOrgMatch[3];
+    const licensePeriod = createOrgMatch[4];
+    const adminEmail = createOrgMatch[5];
+
+    return (
+      <div className="flex flex-col gap-1.5 py-0.5 text-xs text-slate-800">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-semibold text-slate-900 break-words [overflow-wrap:anywhere]">
+            Organization &ldquo;{orgName}&rdquo;
+          </span>
+          {orgCode && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+              {orgCode}
+            </span>
+          )}
+          {totalLicenses && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {totalLicenses} Licenses
+            </span>
+          )}
+        </div>
+        {(licensePeriod || adminEmail) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 break-words [overflow-wrap:anywhere]">
+            {licensePeriod && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-400">Validity:</span>
+                <span className="font-mono text-[10px] text-slate-700">{licensePeriod}</span>
+              </span>
+            )}
+            {adminEmail && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-400">Admin:</span>
+                <span className="font-medium text-slate-700 break-all">{adminEmail}</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 2. Structured "Event: ..., Details: ..." pattern
   const match = formattedDetailsStr.match(/^Event:\s*([^.,]+)[.,]\s*(?:Details:\s*)?(.+)$/i);
 
   if (match) {
@@ -44,19 +96,20 @@ const renderAuditDetails = (details) => {
     return (
       <div className="flex flex-col gap-1 py-0.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 text-slate-600 border border-slate-200 break-words max-w-full">
             Event: {eventName}
           </span>
         </div>
-        <p className="text-xs text-slate-800 font-medium leading-relaxed whitespace-normal break-words">
+        <p className="text-xs text-slate-800 font-medium leading-relaxed whitespace-normal break-words [overflow-wrap:anywhere]">
           {mainDetails}
         </p>
       </div>
     );
   }
 
+  // 3. Fallback for general text logs
   return (
-    <p className="text-xs text-slate-800 font-medium leading-relaxed whitespace-normal break-words py-0.5">
+    <p className="text-xs text-slate-800 font-medium leading-relaxed whitespace-normal break-words [overflow-wrap:anywhere] py-0.5">
       {formattedDetailsStr}
     </p>
   );
@@ -122,7 +175,7 @@ export const AdminDashboard = () => {
     : Number(quickStats.overallCompletionRate || 0);
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
+    <div className="space-y-6 animate-fade-in max-w-7xl 2xl:max-w-[1600px] mx-auto pb-16">
       {/* SECTION 1: Deep Emerald -> Teal Gradient Hero Banner */}
       <div className="relative overflow-hidden p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-[#064E3B] via-[#0D5C46] to-[#0F766E] border border-emerald-800/60 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-5">
         {/* Subtle Background Glows */}
@@ -177,9 +230,9 @@ export const AdminDashboard = () => {
       {/* SKELETON LOADING STATE */}
       {loading ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
             {[1, 2, 3, 4, 5].map((n) => (
-              <div key={n} className="p-5 rounded-2xl bg-white border border-slate-200 animate-pulse space-y-3">
+              <div key={n} className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 animate-pulse space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-slate-200" />
                 <div className="h-4 w-24 bg-slate-200 rounded" />
                 <div className="h-8 w-16 bg-slate-300 rounded" />
@@ -187,13 +240,13 @@ export const AdminDashboard = () => {
             ))}
           </div>
 
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-80" />
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-64" />
+          <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-80" />
+          <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-64" />
         </div>
       ) : (
         <>
           {/* SECTION 2: 5 QUICK STATS CARDS GRID */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
             {/* Card 1: Total Licenses Usage (Visually Highlighted with Adaptive States) */}
             {(() => {
               const total = quickStats.totalLicenses ?? 5;
@@ -233,31 +286,29 @@ export const AdminDashboard = () => {
               }
 
               return (
-                <div className={`p-5 rounded-2xl border shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 ${themeStyles.cardBg}`}>
+                <div className={`p-4 sm:p-5 rounded-2xl border shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 ${themeStyles.cardBg} sm:col-span-2 lg:col-span-1`}>
                   <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Licenses</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold border tracking-wider ${themeStyles.badgeBg}`}>
-                          {themeStyles.badgeText}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline space-x-1.5">
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">Total Licenses</p>
+                      <div className="flex items-baseline space-x-1.5 flex-wrap gap-y-1">
                         <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                           {used} <span className="text-base font-semibold text-slate-400">/ {total}</span>
                         </h3>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold border tracking-wider shrink-0 ${themeStyles.badgeBg}`}>
+                          {themeStyles.badgeText}
+                        </span>
                       </div>
                     </div>
-                    <div className={`p-3 rounded-xl border shrink-0 ${themeStyles.iconBg}`}>
+                    <div className={`p-2.5 rounded-xl border shrink-0 ${themeStyles.iconBg}`}>
                       <Building2 className="w-5 h-5" />
                     </div>
                   </div>
 
                   {/* Progress Bar & Sub-metrics */}
-                  <div className="space-y-2 pt-1 border-t border-slate-100">
-                    <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-slate-600">Used: <strong className="text-slate-900 font-bold">{used}</strong></span>
-                      <span className="text-slate-600">Remaining: <strong className={`font-bold ${themeStyles.remainingText}`}>{remaining}</strong></span>
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-600 gap-1">
+                      <span className="truncate">Used: <strong className="text-slate-900 font-bold">{used}</strong></span>
+                      <span className="truncate">Remaining: <strong className={`font-bold ${themeStyles.remainingText}`}>{remaining}</strong></span>
                     </div>
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden p-0.5">
                       <div
@@ -271,90 +322,90 @@ export const AdminDashboard = () => {
             })()}
 
             {/* Card 2: Total Employees / Learners */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Learners</p>
+                <div className="space-y-1 min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">Total Learners</p>
                   <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                     {quickStats.totalEmployees ?? 0}
                   </h3>
                 </div>
-                <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
                   <Users className="w-5 h-5" />
                 </div>
               </div>
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Active learners</span>
-                <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium gap-1">
+                <span className="truncate">Active learners</span>
+                <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px] shrink-0">
                   Learner Roster
                 </span>
               </div>
             </div>
 
             {/* Card 3: Instructors */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Instructors</p>
+                <div className="space-y-1 min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">Instructors</p>
                   <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                     {quickStats.totalInstructors ?? 0}
                   </h3>
                 </div>
-                <div className="p-3 rounded-xl bg-teal-50 text-teal-600 border border-teal-100 shrink-0">
+                <div className="p-2.5 rounded-xl bg-teal-50 text-teal-600 border border-teal-100 shrink-0">
                   <GraduationCap className="w-5 h-5" />
                 </div>
               </div>
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Course authors</span>
-                <span className="text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 text-[10px]">
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium gap-1">
+                <span className="truncate">Course authors</span>
+                <span className="text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 text-[10px] shrink-0">
                   Faculty
                 </span>
               </div>
             </div>
 
             {/* Card 4: Active Trainings */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Active Trainings</p>
+                <div className="space-y-1 min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">Active Trainings</p>
                   <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                     {quickStats.activeTrainings ?? 0}
                   </h3>
                 </div>
-                <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
+                <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
                   <BookOpen className="w-5 h-5" />
                 </div>
               </div>
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Published courses</span>
-                <span className="text-indigo-700 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200 text-[10px]">
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium gap-1">
+                <span className="truncate">Published courses</span>
+                <span className="text-indigo-700 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200 text-[10px] shrink-0">
                   Catalog
                 </span>
               </div>
             </div>
 
             {/* Card 5: Completed Trainings */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-3.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Completed</p>
-                  <div className="flex items-baseline space-x-2">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">Completed</p>
+                  <div className="flex items-baseline space-x-1.5 flex-wrap gap-y-1">
                     <h3 className="text-2xl font-black text-slate-900 tracking-tight font-heading">
                       {quickStats.completedTrainings ?? 0}
                     </h3>
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
                       {quickStats.overallCompletionRate || '0%'}
                     </span>
                   </div>
                 </div>
-                <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
                   <CheckCircle className="w-5 h-5" />
                 </div>
               </div>
-              <div className="space-y-2 pt-1 border-t border-slate-100">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-                  <span>Completion Rate</span>
-                  <span className="text-emerald-700 font-bold">{quickStats.overallCompletionRate || '0%'}</span>
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-600 gap-1">
+                  <span className="truncate">Completion Rate</span>
+                  <span className="text-emerald-700 font-bold shrink-0">{quickStats.overallCompletionRate || '0%'}</span>
                 </div>
                 <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden p-0.5">
                   <div
@@ -413,7 +464,7 @@ export const AdminDashboard = () => {
             }
 
             return (
-              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+              <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
                   <div className="flex items-center space-x-2.5">
                     <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
@@ -431,31 +482,31 @@ export const AdminDashboard = () => {
                   <div>{statusBadge}</div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 pt-1">
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Start Date</span>
-                    <div className="text-sm font-bold text-slate-900 font-mono">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate block">Start Date</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono truncate">
                       {formatDateDisplay(startDate)}
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">End Date</span>
-                    <div className="text-sm font-bold text-slate-900 font-mono">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate block">End Date</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono truncate">
                       {formatDateDisplay(endDate)}
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">License Quantity</span>
-                    <div className="text-sm font-bold text-slate-900 font-mono">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate block">License Quantity</span>
+                    <div className="text-sm font-bold text-slate-900 font-mono truncate">
                       {total} Total Seats
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Seat Usage</span>
-                    <div className="text-sm font-bold text-emerald-700 font-mono">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate block">Seat Usage</span>
+                    <div className="text-sm font-bold text-emerald-700 font-mono truncate">
                       {used} Used / {remaining} Remaining
                     </div>
                   </div>
@@ -465,7 +516,7 @@ export const AdminDashboard = () => {
           })()}
 
           {/* SECTION 3: GROUP COMPLETION ANALYTICS CHART (FULL WIDTH) */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
+          <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
@@ -527,7 +578,7 @@ export const AdminDashboard = () => {
           </div>
 
           {/* SECTION 4: GROUP DETAILS TABLE */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+          <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 rounded-xl bg-teal-50 text-teal-600 border border-teal-100">
@@ -612,7 +663,7 @@ export const AdminDashboard = () => {
           </div>
 
           {/* SECTION 5: RECENT AUDIT TRAIL (FULL-WIDTH BELOW ANALYTICS) */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+          <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
@@ -640,43 +691,95 @@ export const AdminDashboard = () => {
                 description="Security and system administrative events will be logged here automatically."
               />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-700">
-                  <thead className="text-[11px] uppercase bg-slate-50 text-slate-500 font-bold tracking-wider border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3">Action</th>
-                      <th className="px-4 py-3">Details / Activity</th>
-                      <th className="px-4 py-3">Performed By</th>
-                      <th className="px-4 py-3 text-right">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {recentLogs.map((log) => (
-                      <tr key={log._id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-4 py-3.5 align-top">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                            {formatAuditAction(log.action)}
+              <>
+                {/* Mobile View: Responsive Activity Cards (< md) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {recentLogs.map((log) => (
+                    <div key={log._id} className="py-3.5 first:pt-0 last:pb-0 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                          {formatAuditAction(log.action)}
+                        </span>
+                        <div className="font-mono text-[11px] text-slate-500 text-right shrink-0">
+                          <span className="font-medium text-slate-700">
+                            {new Date(log.timestamp || log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </span>
-                        </td>
-                        <td className="px-4 py-3.5 min-w-[280px] max-w-lg align-top">
+                          <span className="text-slate-400 ml-1.5">
+                            {new Date(log.timestamp || log.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-slate-700 bg-slate-50/70 p-3 rounded-xl border border-slate-100/80 space-y-1">
+                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Details & Activity</div>
+                        <div className="break-words [overflow-wrap:anywhere]">
                           {renderAuditDetails(log.details)}
-                        </td>
-                        <td className="px-4 py-3.5 align-top">
-                          <div className="inline-flex items-center space-x-2">
-                            <span className="font-bold text-slate-900">{log.userName}</span>
-                            <span className="uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                              {formatDisplayText(log.userRole)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono text-xs text-slate-500 align-top">
-                          {new Date(log.timestamp || log.createdAt).toLocaleDateString()} {new Date(log.timestamp || log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-0.5 flex-wrap gap-1">
+                        <span className="text-slate-500 font-medium">Performed By:</span>
+                        <div className="inline-flex items-center space-x-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900 break-words">{log.userName}</span>
+                          <span className="uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200 shrink-0">
+                            {formatDisplayText(log.userRole)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop & Tablet View: Controlled Responsive Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-100">
+                  <table className="w-full min-w-[700px] text-left text-xs text-slate-700 table-fixed border-collapse">
+                    <thead className="text-[11px] uppercase bg-slate-50 text-slate-500 font-bold tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="w-[20%] min-w-[150px] px-4 py-3.5">Action</th>
+                        <th className="w-[48%] min-w-[280px] px-4 py-3.5">Details / Activity</th>
+                        <th className="w-[18%] min-w-[130px] px-4 py-3.5">Performed By</th>
+                        <th className="w-[14%] min-w-[110px] px-4 py-3.5 text-right">Timestamp</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {recentLogs.map((log) => (
+                        <tr key={log._id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-4 py-3.5 align-top">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+                              {formatAuditAction(log.action)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 align-top">
+                            <div className="w-full max-w-full break-words [overflow-wrap:anywhere]">
+                              {renderAuditDetails(log.details)}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 align-top">
+                            <div className="flex flex-col items-start gap-1 max-w-full">
+                              <span className="font-bold text-slate-900 break-words leading-tight" title={log.userName}>
+                                {log.userName}
+                              </span>
+                              <span className="uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200 shrink-0">
+                                {formatDisplayText(log.userRole)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono text-xs text-slate-500 align-top">
+                            <div className="flex flex-col items-end justify-start font-mono text-xs leading-tight">
+                              <span className="text-slate-700 font-medium whitespace-nowrap">
+                                {new Date(log.timestamp || log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                              <span className="text-[11px] text-slate-400 whitespace-nowrap mt-0.5">
+                                {new Date(log.timestamp || log.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </>

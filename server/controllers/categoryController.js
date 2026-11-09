@@ -1,6 +1,7 @@
 const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
+const { validateCategoryName, validateCategoryDescription } = require('../utils/validators');
 
 /**
  * @desc    Create a new Training Category
@@ -12,13 +13,24 @@ const createCategory = async (req, res, next) => {
     const { name, description } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
 
-    if (!name) {
-      throw new ApiError(400, 'Category name is required');
+    const nameError = validateCategoryName(name);
+    if (nameError) {
+      throw new ApiError(400, nameError);
     }
+
+    const descError = validateCategoryDescription(description);
+    if (descError) {
+      throw new ApiError(400, descError);
+    }
+
+    const trimmedName = name.trim();
+    const cleanDesc = description !== undefined && description !== null && typeof description === 'string'
+      ? description.trim() || null
+      : null;
 
     const existingCategory = await prisma.trainingCategory.findFirst({
       where: {
-        name: name.trim(),
+        name: trimmedName,
         organizationId: orgId
       }
     });
@@ -32,8 +44,8 @@ const createCategory = async (req, res, next) => {
       category = await prisma.trainingCategory.update({
         where: { id: existingCategory.id },
         data: {
-          name: name.trim(),
-          description: description || null,
+          name: trimmedName,
+          description: cleanDesc,
           status: 'active',
           createdAt: new Date()
         }
@@ -41,8 +53,8 @@ const createCategory = async (req, res, next) => {
     } else {
       category = await prisma.trainingCategory.create({
         data: {
-          name: name.trim(),
-          description: description || null,
+          name: trimmedName,
+          description: cleanDesc,
           organizationId: orgId,
           status: 'active'
         }
@@ -108,23 +120,40 @@ const updateCategory = async (req, res, next) => {
       throw new ApiError(404, 'Training category not found');
     }
 
-    if (name && name.trim() !== category.name) {
-      const existingActive = await prisma.trainingCategory.findFirst({
-        where: {
-          name: name.trim(),
-          organizationId: orgId,
-          status: 'active',
-          id: { not: category.id }
-        }
-      });
-      if (existingActive) {
-        throw new ApiError(400, 'Training category with this name already exists in your organization');
+    const updateData = {};
+
+    if (name !== undefined) {
+      const nameError = validateCategoryName(name);
+      if (nameError) {
+        throw new ApiError(400, nameError);
       }
+      const trimmedName = name.trim();
+      if (trimmedName !== category.name) {
+        const existingActive = await prisma.trainingCategory.findFirst({
+          where: {
+            name: trimmedName,
+            organizationId: orgId,
+            status: 'active',
+            id: { not: category.id }
+          }
+        });
+        if (existingActive) {
+          throw new ApiError(400, 'Training category with this name already exists in your organization');
+        }
+      }
+      updateData.name = trimmedName;
     }
 
-    const updateData = {};
-    if (name) updateData.name = name.trim();
-    if (description !== undefined) updateData.description = description;
+    if (description !== undefined) {
+      const descError = validateCategoryDescription(description);
+      if (descError) {
+        throw new ApiError(400, descError);
+      }
+      updateData.description = description !== null && typeof description === 'string'
+        ? description.trim() || null
+        : null;
+    }
+
     if (status) updateData.status = status;
 
     const updatedCategory = await prisma.trainingCategory.update({

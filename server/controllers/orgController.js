@@ -6,6 +6,7 @@ const { autoAssignMandatoryTrainings, autoAssignDeptRoleTrainings } = require('.
 const { sendUserNotification, sendAdminNotification } = require('../services/notificationService');
 const { logAuditAction } = require('../services/auditLogService');
 const { checkAndReserveLicense, getOrgLicenseStats, invalidateOrgLicenseCache } = require('../services/licenseService');
+const { validateName, validateEmail, validatePassword, validateGroupName, validateGroupDescription } = require('../utils/validators');
 
 const formatUserResponse = (user) => {
   if (!user) return null;
@@ -30,11 +31,24 @@ const createDepartment = async (req, res, next) => {
     const { name, description, jobRoles } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
 
-    if (!name || !name.trim()) {
-      throw new ApiError(400, 'Department name is required');
+    const validationErrors = [];
+
+    const nameError = validateGroupName(name);
+    if (nameError) {
+      validationErrors.push({ field: 'name', message: nameError });
+    }
+
+    const descError = validateGroupDescription(description);
+    if (descError) {
+      validationErrors.push({ field: 'description', message: descError });
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
     }
 
     const cleanName = name.trim();
+    const cleanDesc = description && typeof description === 'string' && description.trim() ? description.trim() : null;
 
     const existingDep = await prisma.department.findFirst({
       where: {
@@ -44,7 +58,9 @@ const createDepartment = async (req, res, next) => {
     });
 
     if (existingDep && existingDep.status === 'active') {
-      throw new ApiError(400, `Department '${cleanName}' already exists. Please use a different name.`);
+      throw new ApiError(400, `Department '${cleanName}' already exists. Please use a different name.`, [
+        { field: 'name', message: `Department '${cleanName}' already exists. Please use a different name.` }
+      ]);
     }
 
     let department;
@@ -53,7 +69,7 @@ const createDepartment = async (req, res, next) => {
         where: { id: existingDep.id },
         data: {
           name: cleanName,
-          description: description || null,
+          description: cleanDesc,
           jobRoles: Array.isArray(jobRoles) ? jobRoles : [],
           status: 'active',
           createdAt: new Date()
@@ -63,7 +79,7 @@ const createDepartment = async (req, res, next) => {
       department = await prisma.department.create({
         data: {
           name: cleanName,
-          description: description || null,
+          description: cleanDesc,
           jobRoles: Array.isArray(jobRoles) ? jobRoles : [],
           organizationId: orgId,
           status: 'active'
@@ -133,6 +149,26 @@ const updateDepartment = async (req, res, next) => {
       throw new ApiError(404, 'Department not found');
     }
 
+    const validationErrors = [];
+
+    if (name !== undefined) {
+      const nameError = validateGroupName(name);
+      if (nameError) {
+        validationErrors.push({ field: 'name', message: nameError });
+      }
+    }
+
+    if (description !== undefined && description !== null && description !== '') {
+      const descError = validateGroupDescription(description);
+      if (descError) {
+        validationErrors.push({ field: 'description', message: descError });
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+
     if (name && name.trim()) {
       const cleanName = name.trim();
       const existingActive = await prisma.department.findFirst({
@@ -144,13 +180,17 @@ const updateDepartment = async (req, res, next) => {
         }
       });
       if (existingActive) {
-        throw new ApiError(400, `Department '${cleanName}' already exists. Please use a different name.`);
+        throw new ApiError(400, `Department '${cleanName}' already exists. Please use a different name.`, [
+          { field: 'name', message: `Department '${cleanName}' already exists. Please use a different name.` }
+        ]);
       }
     }
 
     const updateData = {};
     if (name) updateData.name = name.trim();
-    if (description !== undefined) updateData.description = description;
+    if (description !== undefined) {
+      updateData.description = description && typeof description === 'string' && description.trim() ? description.trim() : null;
+    }
     if (jobRoles) updateData.jobRoles = Array.isArray(jobRoles) ? jobRoles : [];
     if (status) updateData.status = status;
 
@@ -211,29 +251,59 @@ const createInstructor = async (req, res, next) => {
     const { name, email, password, departmentId } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
 
-    if (!name || !email || !password) {
-      throw new ApiError(400, 'Please provide name, email, and password');
+    const validationErrors = [];
+
+    // 1. Full Name Validation
+    const nameError = validateName(name);
+    if (nameError) {
+      validationErrors.push({ field: 'name', message: nameError });
     }
 
-    const existingUser = await prisma.user.findFirst({
-      where: { email: email.toLowerCase().trim() }
-    });
-    if (existingUser) {
-      throw new ApiError(400, 'User with this email already exists');
+    // 2. Email Format Validation
+    const emailError = validateEmail(email);
+    if (emailError) {
+      validationErrors.push({ field: 'email', message: emailError });
     }
 
-    if (departmentId) {
-      const depId = String(departmentId);
+    // 3. Password Policy Validation
+    const passwordError = validatePassword(password, { name, email });
+    if (passwordError) {
+      validationErrors.push({ field: 'password', message: passwordError });
+    }
+
+    // 4. Assigned Group Validation
+    let cleanDepartmentId = null;
+    if (departmentId !== undefined && departmentId !== null && String(departmentId).trim() !== '') {
+      cleanDepartmentId = String(departmentId).trim();
       const dep = await prisma.department.findFirst({
-        where: { id: depId, organizationId: orgId }
+        where: { id: cleanDepartmentId, organizationId: orgId }
       });
       if (!dep) {
-        throw new ApiError(404, 'Selected department does not exist in your organization');
+        validationErrors.push({
+          field: 'departmentId',
+          message: 'Selected group does not exist in your organization or you are not authorized to assign it'
+        });
       }
     }
 
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+
+    // 5. Email Uniqueness Check (Normalized email)
+    const normalizedEmail = email.toLowerCase().trim();
+    const existingUser = await prisma.user.findFirst({
+      where: { email: normalizedEmail }
+    });
+    if (existingUser) {
+      throw new ApiError(400, 'User with this email already exists', [
+        { field: 'email', message: 'User with this email already exists' }
+      ]);
+    }
+
+    const cleanName = name.trim();
     const hashedPassword = await bcrypt.hash(password, 10);
-    const profilePicture = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name.trim())}`;
+    const profilePicture = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`;
 
     const instructor = await prisma.$transaction(async (tx) => {
       const licenseReservation = await checkAndReserveLicense(orgId, tx);
@@ -243,12 +313,12 @@ const createInstructor = async (req, res, next) => {
 
       return await tx.user.create({
         data: {
-          name: name.trim(),
-          email: email.toLowerCase().trim(),
+          name: cleanName,
+          email: normalizedEmail,
           password: hashedPassword,
           role: 'Instructor',
           organizationId: orgId,
-          departmentId: departmentId ? String(departmentId) : null,
+          departmentId: cleanDepartmentId,
           isProfileComplete: true,
           profilePicture
         },
@@ -329,19 +399,40 @@ const createAdmin = async (req, res, next) => {
     const { name, email, password } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
 
-    if (!name || !email || !password) {
-      throw new ApiError(400, 'Please provide name, email, and password');
+    const validationErrors = [];
+
+    const nameError = validateName(name);
+    if (nameError) {
+      validationErrors.push({ field: 'name', message: nameError });
     }
 
+    const emailError = validateEmail(email);
+    if (emailError) {
+      validationErrors.push({ field: 'email', message: emailError });
+    }
+
+    const passwordError = validatePassword(password, { name, email });
+    if (passwordError) {
+      validationErrors.push({ field: 'password', message: passwordError });
+    }
+
+    if (validationErrors.length > 0) {
+      throw new ApiError(400, validationErrors[0].message, validationErrors);
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
     const existingUser = await prisma.user.findFirst({
-      where: { email: email.toLowerCase().trim() }
+      where: { email: normalizedEmail }
     });
     if (existingUser) {
-      throw new ApiError(400, 'User with this email already exists');
+      throw new ApiError(400, 'User with this email already exists', [
+        { field: 'email', message: 'User with this email already exists' }
+      ]);
     }
 
+    const cleanName = name.trim();
     const hashedPassword = await bcrypt.hash(password, 10);
-    const profilePicture = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name.trim())}`;
+    const profilePicture = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`;
 
     const admin = await prisma.$transaction(async (tx) => {
       const licenseReservation = await checkAndReserveLicense(orgId, tx);
@@ -351,8 +442,8 @@ const createAdmin = async (req, res, next) => {
 
       return await tx.user.create({
         data: {
-          name: name.trim(),
-          email: email.toLowerCase().trim(),
+          name: cleanName,
+          email: normalizedEmail,
           password: hashedPassword,
           role: 'Admin',
           organizationId: orgId,

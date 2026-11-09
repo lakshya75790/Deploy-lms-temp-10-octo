@@ -9,7 +9,8 @@ export const Modal = ({
   children,
   maxWidth = 'max-w-xl',
   closeOnBackdropClick = true,
-  closeOnEscape = true
+  closeOnEscape = true,
+  contentClassName = ''
 }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -47,23 +48,30 @@ export const Modal = ({
       }}
     >
       <div
-        className={`w-full ${maxWidth} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all animate-fade-in my-auto max-h-[92vh] sm:max-h-[85vh] flex flex-col`}
+        className={`w-full ${maxWidth} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all animate-fade-in my-auto max-h-[90vh] flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex-shrink-0">
-          <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h3>
+        <div className="flex items-start sm:items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex-shrink-0 gap-3">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight min-w-0 flex-1 break-words [overflow-wrap:anywhere] [overflow-wrap:break-word] leading-snug">
+            {title}
+          </h3>
           <button
             onClick={onClose}
             aria-label="Close Modal"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors focus:outline-none cursor-pointer"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors focus:outline-none cursor-pointer flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Content */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 max-h-[calc(92vh-54px)] sm:max-h-[calc(85vh-70px)] text-slate-800 dark:text-slate-200">
+        <div
+          className={
+            contentClassName ||
+            'p-4 sm:p-6 overflow-y-auto flex-1 max-h-[calc(90vh-54px)] sm:max-h-[calc(90vh-70px)] text-slate-800 dark:text-slate-200'
+          }
+        >
           {children}
         </div>
       </div>

@@ -521,7 +521,11 @@ const reviewSubmission = async (req, res, next) => {
       throw new ApiError(404, 'Submission not found');
     }
 
-    if (req.user.role === 'Instructor' && submission.assignment.createdBy !== userId) {
+    if (req.user.role !== 'Instructor') {
+      throw new ApiError(403, 'Not authorized to evaluate assignment submissions');
+    }
+
+    if (submission.assignment.createdBy !== userId) {
       throw new ApiError(403, 'Not authorized to review this submission');
     }
 

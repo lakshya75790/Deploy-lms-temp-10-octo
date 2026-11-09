@@ -26,6 +26,6 @@ router.route('/:id')
 
 router.post('/:id/submit', authorizeRoles('Employee'), submitAssignment);
 router.get('/:id/submissions', authorizeRoles('Instructor', 'Admin'), getAssignmentSubmissions);
-router.put('/submissions/:submissionId/review', authorizeRoles('Instructor', 'Admin'), reviewSubmission);
+router.put('/submissions/:submissionId/review', authorizeRoles('Instructor'), reviewSubmission);
 
 module.exports = router;

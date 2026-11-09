@@ -9,6 +9,14 @@ const autoAssignMandatoryTrainings = async (employeeId, organizationId) => {
     const empId = String(employeeId);
     const orgId = String(organizationId);
 
+    const employee = await prisma.user.findFirst({
+      where: { id: empId, organizationId: orgId },
+      select: { id: true, status: true }
+    });
+    if (!employee || (employee.status && employee.status.toLowerCase() !== 'active')) {
+      return [];
+    }
+
     const mandatoryTrainings = await prisma.training.findMany({
       where: {
         organizationId: orgId,
@@ -81,6 +89,14 @@ const autoAssignDeptRoleTrainings = async (employeeId, organizationId, departmen
     const orgId = String(organizationId);
     const depId = String(departmentId);
 
+    const employee = await prisma.user.findFirst({
+      where: { id: empId, organizationId: orgId },
+      select: { id: true, status: true }
+    });
+    if (!employee || (employee.status && employee.status.toLowerCase() !== 'active')) {
+      return [];
+    }
+
     const matchedTrainings = await prisma.training.findMany({
       where: {
         organizationId: orgId,
@@ -149,6 +165,14 @@ const autoAssignRulesToNewEmployee = async (employeeId, organizationId) => {
   try {
     const empId = String(employeeId);
     const orgId = String(organizationId);
+
+    const employee = await prisma.user.findFirst({
+      where: { id: empId, organizationId: orgId },
+      select: { id: true, status: true }
+    });
+    if (!employee || (employee.status && employee.status.toLowerCase() !== 'active')) {
+      return [];
+    }
 
     const activeRules = await prisma.autoAssignmentRule.findMany({
       where: {
@@ -269,9 +293,13 @@ const createAutoAssignmentRule = async (adminId, organizationId, trainingId, cus
     });
   }
 
-  // Immediately assign training to ALL existing active employees in the organization
+  // Immediately assign training to ALL existing active employees in the organization (exclude deactivated/blocked users)
   const employees = await prisma.user.findMany({
-    where: { organizationId: orgId, role: 'Employee' }
+    where: {
+      organizationId: orgId,
+      role: 'Employee',
+      status: { in: ['active', 'ACTIVE'] }
+    }
   });
   const now = new Date();
   const deadlineDays = Number(customDeadlineDays) || 30;
@@ -369,7 +397,11 @@ const reactivateAutoAssignmentRule = async (adminId, organizationId, ruleId) => 
   });
 
   const employees = await prisma.user.findMany({
-    where: { organizationId: orgId, role: 'Employee' }
+    where: {
+      organizationId: orgId,
+      role: 'Employee',
+      status: { in: ['active', 'ACTIVE'] }
+    }
   });
   const now = new Date();
   const deadlineDays = Number(rule.customDeadlineDays) || 30;
@@ -504,7 +536,12 @@ const assignTrainingByDeptAndRole = async (adminId, organizationId, departmentId
     throw new Error('Published training course not found in your organization');
   }
 
-  const whereClause = { organizationId: orgId, role: 'Employee', departmentId: depId };
+  const whereClause = {
+    organizationId: orgId,
+    role: 'Employee',
+    departmentId: depId,
+    status: { in: ['active', 'ACTIVE'] }
+  };
   if (jobRole && jobRole !== 'ALL_ROLES') {
     whereClause.jobRole = jobRole;
   }
@@ -512,13 +549,21 @@ const assignTrainingByDeptAndRole = async (adminId, organizationId, departmentId
   const employees = await prisma.user.findMany({ where: whereClause });
 
   if (employees.length === 0) {
-    throw new Error('No employees match the specified Department and Job Role');
+    throw new ApiError(400, 'No active employees match the specified Department and Job Role');
   }
 
   const now = new Date();
   let deadline;
   if (customDeadlineDate) {
-    deadline = new Date(customDeadlineDate);
+    const customDate = new Date(customDeadlineDate);
+    if (isNaN(customDate.getTime())) {
+      throw new Error('Invalid custom completion deadline date format');
+    }
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    if (customDate < startOfToday) {
+      throw new Error('Custom completion deadline cannot be in the past. Please select a future date.');
+    }
+    deadline = new Date(customDate.getFullYear(), customDate.getMonth(), customDate.getDate(), 23, 59, 59, 999);
   } else {
     deadline = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   }
@@ -626,13 +671,32 @@ const assignTrainingToMultipleEmployees = async (adminId, organizationId, employ
   });
 
   if (employees.length === 0) {
-    throw new Error('No valid employees found from selected list');
+    throw new ApiError(400, 'No valid employees found from selected list');
+  }
+
+  // Reject assignment if any targeted learner account is deactivated or blocked
+  const deactivatedUser = employees.find(
+    emp => emp.status && emp.status.toLowerCase() !== 'active'
+  );
+  if (deactivatedUser) {
+    throw new ApiError(
+      400,
+      `User ${deactivatedUser.name} is currently deactivated/blocked and cannot be assigned courses`
+    );
   }
 
   const now = new Date();
   let deadline;
   if (customDeadlineDate) {
-    deadline = new Date(customDeadlineDate);
+    const customDate = new Date(customDeadlineDate);
+    if (isNaN(customDate.getTime())) {
+      throw new Error('Invalid custom completion deadline date format');
+    }
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    if (customDate < startOfToday) {
+      throw new Error('Custom completion deadline cannot be in the past. Please select a future date.');
+    }
+    deadline = new Date(customDate.getFullYear(), customDate.getMonth(), customDate.getDate(), 23, 59, 59, 999);
   } else {
     deadline = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   }

@@ -40,7 +40,13 @@ export const DeadlineManager = () => {
     try {
       setLoading(true);
       const res = await getAllAssignments();
-      setAssignments(res.data.data.assignments || []);
+      const all = res.data.data.assignments || [];
+      // Defensive filtering: only include learners whose account status is ACTIVE
+      const activeLearnersOnly = all.filter(a => {
+        const empStatus = (a.employeeId?.status || a.employee?.status || '').toLowerCase();
+        return !empStatus || empStatus === 'active';
+      });
+      setAssignments(activeLearnersOnly);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to fetch assignments');
     } finally {
@@ -83,6 +89,11 @@ export const DeadlineManager = () => {
 
   // Open Lock Modal
   const handleOpenLockModal = (assign) => {
+    const empStatus = (assign.employeeId?.status || assign.employee?.status || 'active').toLowerCase();
+    if (empStatus !== 'active') {
+      addToast('error', 'Cannot lock training for an inactive or deactivated learner account');
+      return;
+    }
     setActiveAssignment(assign);
     setLockReason('');
     setShowLockModal(true);
@@ -163,6 +174,8 @@ export const DeadlineManager = () => {
                   const isCompleted = a.status === 'Completed' || a.progressPercentage === 100;
                   const isLocked = a.lockStatus?.isLocked || a.status === 'Locked';
                   const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < new Date() && !isCompleted);
+                  const empStatus = (a.employeeId?.status || a.employee?.status || 'active').toLowerCase();
+                  const isLearnerInactive = empStatus !== 'active';
 
                   return (
                     <tr key={a._id} className="hover:bg-slate-50/80 transition-colors">
@@ -195,7 +208,7 @@ export const DeadlineManager = () => {
                       <td className="p-4">
                         {isCompleted ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Completed
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Completed
                           </span>
                         ) : (
                           <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
@@ -246,6 +259,15 @@ export const DeadlineManager = () => {
                               >
                                 <Unlock className="w-3.5 h-3.5 mr-1" />
                                 Unlock Training
+                              </button>
+                            ) : isLearnerInactive ? (
+                              <button
+                                disabled
+                                title="Cannot lock training for inactive/deactivated account"
+                                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed inline-flex items-center"
+                              >
+                                <Lock className="w-3.5 h-3.5 mr-1" />
+                                Account Inactive
                               </button>
                             ) : (
                               <button
@@ -333,7 +355,7 @@ export const DeadlineManager = () => {
 
       {/* LOCK TRAINING CONFIRM MODAL */}
       {showLockModal && activeAssignment && (
-        <Modal isOpen={showLockModal} onClose={() => setShowLockModal(false)} title="Lock Training Access?">
+        <Modal isOpen={showLockModal} onClose={() => setShowLockModal(false)} title="Lock Training Access?" closeOnBackdropClick={false}>
           <form onSubmit={handleLockSubmit} className="space-y-4">
             <div className="flex items-center space-x-3 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs">
               <ShieldAlert className="w-8 h-8 text-rose-600 flex-shrink-0" />
@@ -380,7 +402,7 @@ export const DeadlineManager = () => {
 
       {/* UNLOCK TRAINING CONFIRM MODAL */}
       {showUnlockModal && activeAssignment && (
-        <Modal isOpen={showUnlockModal} onClose={() => setShowUnlockModal(false)} title="Unlock Training Access?">
+        <Modal isOpen={showUnlockModal} onClose={() => setShowUnlockModal(false)} title="Unlock Training Access?" closeOnBackdropClick={false}>
           <form onSubmit={handleUnlockSubmit} className="space-y-4">
             <div className="flex items-center space-x-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs">
               <ShieldCheck className="w-8 h-8 text-emerald-600 flex-shrink-0" />

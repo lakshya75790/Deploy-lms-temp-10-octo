@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   getTrainingById,
@@ -9,9 +9,10 @@ import {
   uploadPdf,
   deleteMedia
 } from '../../services/api';
-import { validateImageFile, validateVideoFile, validateDocumentFile } from '../../utils/fileValidation';
+import { validateImageFile, validateVideoFile, validatePdfFile } from '../../utils/fileValidation';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { Modal } from '../../components/common/Modal';
+import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { useNotification } from '../../context/NotificationContext';
 import {
   ArrowLeft,
@@ -30,7 +31,9 @@ import {
   Send,
   Sparkles,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 export const CourseBuilder = () => {
@@ -73,6 +76,30 @@ export const CourseBuilder = () => {
   const [lectureVideoPublicId, setLectureVideoPublicId] = useState('');
   const [lectureVideoDuration, setLectureVideoDuration] = useState(0);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [videoUploadState, setVideoUploadState] = useState('idle'); // 'idle' | 'uploading' | 'success' | 'error'
+  const [videoUploadError, setVideoUploadError] = useState('');
+  const [showCancelUploadConfirm, setShowCancelUploadConfirm] = useState(false);
+  const videoUploadAbortControllerRef = useRef(null);
+
+  // Browser Navigation Protection during active video upload
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (uploadingVideo) {
+        e.preventDefault();
+        e.returnValue = 'Video upload is in progress. Leaving now will cancel the upload.';
+        return e.returnValue;
+      }
+    };
+
+    if (uploadingVideo) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [uploadingVideo]);
 
   // Section Quiz Modal state
   const [showQuizModal, setShowQuizModal] = useState(false);
@@ -98,6 +125,29 @@ export const CourseBuilder = () => {
   const [addResourcesEnabled, setAddResourcesEnabled] = useState(false);
   const [resources, setResources] = useState([]); // [{ title, fileUrl, filePublicId }]
   const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  // Confirmation Modal State
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Delete',
+    onConfirm: null
+  });
+
+  const openConfirmDialog = ({ title, message, confirmText = 'Delete', onConfirm }) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      confirmText,
+      onConfirm
+    });
+  };
+
+  const closeConfirmDialog = () => {
+    setConfirmDialog(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+  };
 
   // Load Categories & Existing Training (if edit)
   useEffect(() => {
@@ -255,19 +305,27 @@ export const CourseBuilder = () => {
     }
   };
 
-  const handleDeleteThumbnail = async () => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    const target = thumbnailPublicId || thumbnailUrl;
-    try {
-      if (target) {
-        await deleteMedia(target, 'image');
+  const handleDeleteThumbnail = () => {
+    openConfirmDialog({
+      title: 'Delete Thumbnail',
+      message: 'Are you sure you want to delete this course thumbnail image? You can upload a new one at any time.',
+      confirmText: 'Delete Thumbnail',
+      onConfirm: async () => {
+        const target = thumbnailPublicId || thumbnailUrl;
+        try {
+          if (target) {
+            await deleteMedia(target, 'image');
+          }
+          setThumbnailUrl('');
+          setThumbnailPublicId('');
+          addToast('success', 'File deleted successfully.');
+        } catch (err) {
+          addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
+        } finally {
+          closeConfirmDialog();
+        }
       }
-      setThumbnailUrl('');
-      setThumbnailPublicId('');
-      addToast('success', 'File deleted successfully.');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
-    }
+    });
   };
 
   // SECTION HANDLERS
@@ -306,9 +364,17 @@ export const CourseBuilder = () => {
   };
 
   const handleDeleteSection = (idx) => {
-    if (!window.confirm('Are you sure you want to delete this section and its lectures?')) return;
-    setSections(sections.filter((_, i) => i !== idx));
-    addToast('success', 'Section deleted');
+    const sectionTitle = sections[idx]?.title || 'this section';
+    openConfirmDialog({
+      title: 'Delete Section Module',
+      message: `Are you sure you want to delete "${sectionTitle}" and all of its lectures? This action cannot be undone.`,
+      confirmText: 'Delete Section',
+      onConfirm: () => {
+        setSections(sections.filter((_, i) => i !== idx));
+        addToast('success', 'Section deleted');
+        closeConfirmDialog();
+      }
+    });
   };
 
   // LECTURE HANDLERS
@@ -320,6 +386,9 @@ export const CourseBuilder = () => {
     setLectureVideoUrl('');
     setLectureVideoPublicId('');
     setLectureVideoDuration(0);
+    setVideoUploadProgress(0);
+    setVideoUploadState('idle');
+    setVideoUploadError('');
     setShowLectureModal(true);
   };
 
@@ -332,12 +401,47 @@ export const CourseBuilder = () => {
     setLectureVideoUrl(lec.videoUrl || '');
     setLectureVideoPublicId(lec.videoPublicId || '');
     setLectureVideoDuration(lec.videoDuration || 0);
+    setVideoUploadProgress(lec.videoUrl ? 100 : 0);
+    setVideoUploadState(lec.videoUrl ? 'success' : 'idle');
+    setVideoUploadError('');
     setShowLectureModal(true);
   };
 
+  const handleAttemptCloseLectureModal = () => {
+    if (uploadingVideo) {
+      setShowCancelUploadConfirm(true);
+    } else {
+      handleCloseLectureModal();
+    }
+  };
+
+  const handleCloseLectureModal = () => {
+    setShowLectureModal(false);
+    setUploadingVideo(false);
+    setVideoUploadProgress(0);
+    setVideoUploadState('idle');
+    setVideoUploadError('');
+  };
+
+  const handleConfirmCancelUpload = () => {
+    if (videoUploadAbortControllerRef.current) {
+      videoUploadAbortControllerRef.current.abort();
+      videoUploadAbortControllerRef.current = null;
+    }
+    setUploadingVideo(false);
+    setVideoUploadProgress(0);
+    setVideoUploadState('idle');
+    setVideoUploadError('');
+    setShowCancelUploadConfirm(false);
+    setShowLectureModal(false);
+    addToast('info', 'Video upload cancelled');
+  };
+
   const handleVideoUpload = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
+
+    if (uploadingVideo) return;
 
     const validation = validateVideoFile(file);
     if (!validation.valid) {
@@ -346,46 +450,107 @@ export const CourseBuilder = () => {
       return;
     }
 
+    if (videoUploadAbortControllerRef.current) {
+      videoUploadAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    videoUploadAbortControllerRef.current = abortController;
+
     const formData = new FormData();
     formData.append('file', file);
     setUploadingVideo(true);
+    setVideoUploadProgress(0);
+    setVideoUploadState('uploading');
+    setVideoUploadError('');
+
     try {
-      const res = await uploadVideo(formData);
+      const res = await uploadVideo(formData, {
+        signal: abortController.signal,
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.min(99, Math.round((progressEvent.loaded * 100) / progressEvent.total));
+            setVideoUploadProgress(percent);
+          }
+        }
+      });
+
       const newPublicId = res.data.data.publicId || res.data.data.public_id || res.data.data.url;
       const oldTarget = lectureVideoPublicId || lectureVideoUrl;
       if (oldTarget && oldTarget !== newPublicId) {
         deleteMedia(oldTarget, 'video').catch(err => console.warn('Failed to delete old video from Cloudinary:', err));
       }
+
       setLectureVideoUrl(res.data.data.url);
       setLectureVideoPublicId(newPublicId);
+      setLectureVideoDuration(res.data.data.duration || 0);
+      setVideoUploadProgress(100);
+      setVideoUploadState('success');
+      setVideoUploadError('');
       addToast('success', 'Lecture video uploaded to Cloudinary!');
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to upload video');
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        setVideoUploadProgress(0);
+        setVideoUploadState('idle');
+        setVideoUploadError('');
+      } else {
+        const errorMsg = err.response?.data?.message || 'Failed to upload video';
+        setVideoUploadState('error');
+        setVideoUploadError(errorMsg);
+        setLectureVideoUrl('');
+        setLectureVideoPublicId('');
+        setLectureVideoDuration(0);
+        addToast('error', errorMsg);
+      }
     } finally {
       setUploadingVideo(false);
-      e.target.value = null;
+      videoUploadAbortControllerRef.current = null;
+      if (e.target) {
+        e.target.value = null;
+      }
     }
   };
 
-  const handleDeleteLectureVideo = async () => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    const target = lectureVideoPublicId || lectureVideoUrl;
-    try {
-      if (target) {
-        await deleteMedia(target, 'video');
+  const handleDeleteLectureVideo = () => {
+    openConfirmDialog({
+      title: 'Delete Video File',
+      message: 'Are you sure you want to delete this lecture video? You will need to upload a replacement video.',
+      confirmText: 'Delete Video',
+      onConfirm: async () => {
+        const target = lectureVideoPublicId || lectureVideoUrl;
+        try {
+          if (target) {
+            await deleteMedia(target, 'video');
+          }
+          setLectureVideoUrl('');
+          setLectureVideoPublicId('');
+          setLectureVideoDuration(0);
+          setVideoUploadProgress(0);
+          setVideoUploadState('idle');
+          setVideoUploadError('');
+          addToast('success', 'File deleted successfully.');
+        } catch (err) {
+          addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
+        } finally {
+          closeConfirmDialog();
+        }
       }
-      setLectureVideoUrl('');
-      setLectureVideoPublicId('');
-      addToast('success', 'File deleted successfully.');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
-    }
+    });
   };
 
   const handleSaveLecture = (e) => {
     e.preventDefault();
+    if (uploadingVideo) {
+      addToast('warning', 'Please wait until the video upload finishes before saving the lecture');
+      return;
+    }
+
     if (!lectureTitle.trim()) {
       addToast('error', 'Lecture title is required');
+      return;
+    }
+
+    if (!lectureVideoUrl) {
+      addToast('error', 'Please upload a video for this lecture before saving');
       return;
     }
 
@@ -407,23 +572,31 @@ export const CourseBuilder = () => {
     }
 
     setSections(updated);
-    setShowLectureModal(false);
+    handleCloseLectureModal();
   };
 
-  const handleDeleteLecture = async (sIdx, lIdx) => {
-    if (!window.confirm('Are you sure you want to delete this lecture?')) return;
-    const lec = sections[sIdx].lectures[lIdx];
-    if (lec && lec.videoPublicId) {
-      try {
-        await deleteMedia(lec.videoPublicId, 'video');
-      } catch (err) {
-        console.warn('Failed to delete lecture video asset from Cloudinary:', err);
+  const handleDeleteLecture = (sIdx, lIdx) => {
+    const lectureTitle = sections[sIdx]?.lectures?.[lIdx]?.title || 'this lecture';
+    openConfirmDialog({
+      title: 'Delete Lecture Video',
+      message: `Are you sure you want to delete "${lectureTitle}"? The associated video asset will also be removed.`,
+      confirmText: 'Delete Lecture',
+      onConfirm: async () => {
+        const lec = sections[sIdx]?.lectures?.[lIdx];
+        if (lec && lec.videoPublicId) {
+          try {
+            await deleteMedia(lec.videoPublicId, 'video');
+          } catch (err) {
+            console.warn('Failed to delete lecture video asset from Cloudinary:', err);
+          }
+        }
+        const updated = [...sections];
+        updated[sIdx].lectures = updated[sIdx].lectures.filter((_, i) => i !== lIdx);
+        setSections(updated);
+        addToast('success', 'Lecture deleted');
+        closeConfirmDialog();
       }
-    }
-    const updated = [...sections];
-    updated[sIdx].lectures = updated[sIdx].lectures.filter((_, i) => i !== lIdx);
-    setSections(updated);
-    addToast('success', 'Lecture deleted');
+    });
   };
 
   // SECTION QUIZ HANDLERS
@@ -439,6 +612,7 @@ export const CourseBuilder = () => {
         questionType: 'MCQ',
         options: ['', '', '', ''],
         correctAnswerIndex: 0,
+        correctAnswerIndices: [0],
         correctAnswerText: ''
       }
     ]);
@@ -454,14 +628,28 @@ export const CourseBuilder = () => {
       setQuizDurationMinutes(quiz.timeLimitMinutes || 15);
       setQuizPassingScorePercent(quiz.passingScorePercent || 70);
       if (quiz.questions && quiz.questions.length > 0) {
-        setQuizQuestions(quiz.questions.map(q => ({
-          id: q.id || q._id,
-          questionText: q.questionText || '',
-          questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
-          options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
-          correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
-          correctAnswerText: q.correctAnswerText || ''
-        })));
+        setQuizQuestions(quiz.questions.map(q => {
+          const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+          const opts = Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : (qType === 'FILL_IN_BLANK' ? [] : ['', '', '', '']);
+          let indices = [];
+          if (Array.isArray(q.correctAnswerIndices) && q.correctAnswerIndices.length > 0) {
+            indices = q.correctAnswerIndices.map(Number);
+          } else if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+            indices = [Number(q.correctAnswerIndex)];
+          } else {
+            indices = qType === 'FILL_IN_BLANK' ? [] : [0];
+          }
+
+          return {
+            id: q.id || q._id,
+            questionText: q.questionText || '',
+            questionType: qType,
+            options: opts,
+            correctAnswerIndex: indices.length > 0 ? indices[0] : (qType === 'FILL_IN_BLANK' ? null : 0),
+            correctAnswerIndices: indices,
+            correctAnswerText: q.correctAnswerText || ''
+          };
+        }));
       } else {
         setQuizQuestions([
           {
@@ -469,6 +657,7 @@ export const CourseBuilder = () => {
             questionType: 'MCQ',
             options: ['', '', '', ''],
             correctAnswerIndex: 0,
+            correctAnswerIndices: [0],
             correctAnswerText: ''
           }
         ]);
@@ -482,8 +671,13 @@ export const CourseBuilder = () => {
 
   const handleSaveSectionQuiz = (e) => {
     e.preventDefault();
-    if (!quizTitle.trim()) {
+    const trimmedQuizTitle = quizTitle.trim();
+    if (!trimmedQuizTitle) {
       addToast('error', 'Quiz Title is required');
+      return;
+    }
+    if (trimmedQuizTitle.length > 100) {
+      addToast('error', 'Quiz Title cannot exceed 100 characters');
       return;
     }
 
@@ -495,12 +689,33 @@ export const CourseBuilder = () => {
 
     for (let i = 0; i < validQuestions.length; i++) {
       const q = validQuestions[i];
-      if (q.questionType === 'MCQ') {
+      if (q.questionText.trim().length > 500) {
+        addToast('error', `Question #${i + 1}: Question text cannot exceed 500 characters`);
+        return;
+      }
+      if (q.questionType === 'MCQ' || q.questionType === 'MSQ') {
         const filledOpts = (q.options || []).filter(o => o && o.trim());
         if (filledOpts.length < 2) {
-          addToast('error', `Question #${i + 1}: Multiple choice questions must have at least 2 options`);
+          addToast('error', `Question #${i + 1}: Multiple choice/select questions must have at least 2 options`);
           return;
         }
+        for (let j = 0; j < (q.options || []).length; j++) {
+          if (q.options[j] && q.options[j].length > 200) {
+            addToast('error', `Question #${i + 1}, Option ${String.fromCharCode(65 + j)}: Option text cannot exceed 200 characters`);
+            return;
+          }
+        }
+        if (q.questionType === 'MSQ') {
+          const selectedIndices = (q.correctAnswerIndices || []).filter(idx => idx >= 0 && idx < (q.options || []).length);
+          if (selectedIndices.length === 0) {
+            addToast('error', `Question #${i + 1}: Please select at least one correct answer for Multiple Select`);
+            return;
+          }
+        }
+      }
+      if (q.questionType === 'FILL_IN_BLANK' && q.correctAnswerText && q.correctAnswerText.length > 200) {
+        addToast('error', `Question #${i + 1}: Correct answer text cannot exceed 200 characters`);
+        return;
       }
     }
 
@@ -508,13 +723,31 @@ export const CourseBuilder = () => {
     const existingSecQuiz = updated[targetSectionIdx]?.quiz;
     updated[targetSectionIdx].quiz = {
       ...(existingSecQuiz || {}),
-      title: quizTitle.trim(),
+      title: trimmedQuizTitle,
       timeLimitMinutes: Number(quizDurationMinutes) || 15,
       passingScorePercent: Number(quizPassingScorePercent) || 70,
-      questions: validQuestions.map((q, qIdx) => ({
-        ...q,
-        order: qIdx + 1
-      }))
+      questions: validQuestions.map((q, qIdx) => {
+        const qType = q.questionType || 'MCQ';
+        let indices = Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices.map(Number) : [];
+        if (indices.length === 0 && q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+          indices = [Number(q.correctAnswerIndex)];
+        }
+        indices = Array.from(new Set(indices)).sort((a, b) => a - b);
+        const correctText = qType === 'MSQ'
+          ? indices.map(idx => q.options?.[idx]).filter(Boolean).join(', ')
+          : qType === 'MCQ'
+            ? (q.options?.[indices[0]] || '')
+            : (q.correctAnswerText || '');
+
+        return {
+          ...q,
+          order: qIdx + 1,
+          questionType: qType,
+          correctAnswerIndices: indices,
+          correctAnswerIndex: indices.length > 0 ? indices[0] : (qType === 'FILL_IN_BLANK' ? null : 0),
+          correctAnswerText: correctText
+        };
+      })
     };
 
     setSections(updated);
@@ -523,18 +756,33 @@ export const CourseBuilder = () => {
   };
 
   const handleRemoveSectionQuiz = (sIdx) => {
-    if (!window.confirm(`Are you sure you want to remove the quiz from ${sections[sIdx].title}?`)) return;
-    const updated = [...sections];
-    updated[sIdx].quiz = null;
-    setSections(updated);
-    addToast('success', 'Quiz removed from section');
+    const sectionTitle = sections[sIdx]?.title || 'this section';
+    openConfirmDialog({
+      title: 'Remove Section Quiz',
+      message: `Are you sure you want to remove the quiz from "${sectionTitle}"? All questions in this section quiz will be removed.`,
+      confirmText: 'Delete Quiz',
+      onConfirm: () => {
+        const updated = [...sections];
+        updated[sIdx].quiz = null;
+        setSections(updated);
+        addToast('success', 'Quiz removed from section');
+        closeConfirmDialog();
+      }
+    });
   };
 
   // QUIZ QUESTION BUILDER HANDLERS
   const handleAddQuestion = () => {
     setQuizQuestions([
       ...quizQuestions,
-      { questionText: '', questionType: 'MCQ', options: ['', '', '', ''], correctAnswerIndex: 0, correctAnswerText: '' }
+      {
+        questionText: '',
+        questionType: 'MCQ',
+        options: ['', '', '', ''],
+        correctAnswerIndex: 0,
+        correctAnswerIndices: [0],
+        correctAnswerText: ''
+      }
     ]);
   };
 
@@ -547,12 +795,12 @@ export const CourseBuilder = () => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    // Filter valid document files
+    // Strictly validate PDF MIME type, extension, and size
     const validFiles = [];
     for (const file of files) {
-      const validation = validateDocumentFile(file);
+      const validation = validatePdfFile(file);
       if (!validation.valid) {
-        addToast('error', `${file.name}: ${validation.error}`);
+        addToast('error', validation.error === 'Only PDF files are allowed.' ? `${file.name}: Only PDF files are allowed.` : `${file.name}: ${validation.error}`);
       } else {
         validFiles.push(file);
       }
@@ -574,7 +822,8 @@ export const CourseBuilder = () => {
         uploadedList.push({
           title: file.name,
           fileUrl: res.data.data.url,
-          filePublicId: pId
+          filePublicId: pId,
+          originalName: file.name
         });
       }
       setResources([...resources, ...uploadedList]);
@@ -587,26 +836,44 @@ export const CourseBuilder = () => {
     }
   };
 
-  const handleDeleteResource = async (idx) => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    const targetRes = resources[idx];
-    try {
-      const target = targetRes?.filePublicId || targetRes?.pdfPublicId || targetRes?.fileUrl || targetRes?.pdfUrl;
-      if (target) {
-        await deleteMedia(target, 'raw');
+  const handleDeleteResource = (idx) => {
+    const resourceTitle = resources[idx]?.title || 'this resource';
+    openConfirmDialog({
+      title: 'Delete Resource File',
+      message: `Are you sure you want to delete "${resourceTitle}"?`,
+      confirmText: 'Delete Resource',
+      onConfirm: async () => {
+        const targetRes = resources[idx];
+        try {
+          const target = targetRes?.filePublicId || targetRes?.pdfPublicId || targetRes?.fileUrl || targetRes?.pdfUrl;
+          if (target) {
+            await deleteMedia(target, 'raw');
+          }
+          setResources(resources.filter((_, i) => i !== idx));
+          addToast('success', 'File deleted successfully.');
+        } catch (err) {
+          addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
+        } finally {
+          closeConfirmDialog();
+        }
       }
-      setResources(resources.filter((_, i) => i !== idx));
-      addToast('success', 'File deleted successfully.');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
-    }
+    });
   };
 
   // STEP NAVIGATION VALIDATION
   const handleNextStep = () => {
     if (currentStep === 1) {
-      if (!title.trim()) {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) {
         addToast('error', 'Training Title is required');
+        return;
+      }
+      if (trimmedTitle.length < 2) {
+        addToast('error', 'Training Title must be at least 2 characters long');
+        return;
+      }
+      if (trimmedTitle.length > 100) {
+        addToast('error', 'Training Title cannot exceed 100 characters');
         return;
       }
       if (!categoryId) {
@@ -757,29 +1024,31 @@ export const CourseBuilder = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in pb-16">
       {/* Header Bar */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
+      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 overflow-hidden">
+        <div className="flex items-start sm:items-center space-x-3 min-w-0 flex-1">
           <button
             onClick={() => navigate('/instructor/trainings')}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer flex-shrink-0 mt-0.5 sm:mt-0"
+            title="Back to Trainings"
+            aria-label="Back to Trainings"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="inline-flex items-center text-[11px] font-bold text-emerald-700">
               <Sparkles className="w-3 h-3 mr-1" /> {isEditMode ? 'Edit Course' : 'Create New Course'}
             </div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight font-heading break-words [overflow-wrap:anywhere] min-w-0">
               {title || 'Untitled Course'}
             </h1>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0 self-start sm:self-center">
           <button
             onClick={() => handleFinalSubmit('draft')}
             disabled={submitting}
-            className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50"
+            className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
           >
             {submitting ? 'Saving...' : 'Save Draft'}
           </button>
@@ -836,17 +1105,24 @@ export const CourseBuilder = () => {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Course Title <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Course Title <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[10px] text-slate-400">2–100 characters</span>
+              </div>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
+                maxLength={100}
                 placeholder="e.g. Master React 19 & Next.js Architecture"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 focus:border-emerald-600 outline-none"
               />
+              <div className="flex justify-end mt-1">
+                <span className="text-[10px] text-slate-400">{title.length}/100 characters</span>
+              </div>
             </div>
 
             <div>
@@ -997,22 +1273,29 @@ export const CourseBuilder = () => {
           ) : (
             <div className="space-y-4">
               {sections.map((sec, sIdx) => (
-                <div key={sIdx} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-base flex items-center">
-                        <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 font-extrabold text-xs flex items-center justify-center mr-2">
+                <div key={sIdx} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 overflow-hidden">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between border-b border-slate-200 pb-3 gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start">
+                        <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 font-extrabold text-xs flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
                           {sIdx + 1}
                         </span>
-                        {sec.title}
-                      </h3>
-                      {sec.description && <p className="text-xs text-slate-500 mt-0.5 ml-8">{sec.description}</p>}
+                        <h3 className="font-bold text-slate-900 text-base break-words [overflow-wrap:anywhere] min-w-0 flex-1">
+                          {sec.title}
+                        </h3>
+                      </div>
+                      {sec.description && (
+                        <p className="text-xs text-slate-500 mt-1 ml-8 break-words [overflow-wrap:anywhere]">
+                          {sec.description}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center flex-wrap gap-2 flex-shrink-0 self-start sm:self-auto sm:ml-auto">
                       <button
+                        type="button"
                         onClick={() => openAddLectureModal(sIdx)}
-                        className="px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100 transition-colors cursor-pointer inline-flex items-center"
+                        className="px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap"
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" /> Add Lecture
                       </button>
@@ -1020,15 +1303,27 @@ export const CourseBuilder = () => {
                         <button
                           type="button"
                           onClick={() => openAddQuizModal(sIdx)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold hover:bg-amber-100 transition-colors cursor-pointer inline-flex items-center"
+                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold hover:bg-amber-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap"
                         >
                           <Plus className="w-3.5 h-3.5 mr-1" /> Add Quiz
                         </button>
                       )}
-                      <button onClick={() => openEditSectionModal(sIdx)} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer">
+                      <button
+                        type="button"
+                        onClick={() => openEditSectionModal(sIdx)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer"
+                        title="Edit Section"
+                        aria-label="Edit Section"
+                      >
                         <Edit3 className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDeleteSection(sIdx)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSection(sIdx)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer"
+                        title="Delete Section"
+                        aria-label="Delete Section"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -1040,25 +1335,41 @@ export const CourseBuilder = () => {
                       <p className="text-xs text-slate-400 italic py-1">No lectures added to this section yet.</p>
                     ) : (
                       sec.lectures.map((lec, lIdx) => (
-                        <div key={lIdx} className="p-3 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-xs">
-                          <div className="flex items-center space-x-3">
-                            <Video className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                            <div>
-                              <p className="font-bold text-slate-900">{lec.title}</p>
-                              {lec.description && <p className="text-[11px] text-slate-500 line-clamp-1">{lec.description}</p>}
+                        <div key={lIdx} className="p-3 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs overflow-hidden">
+                          <div className="flex items-start space-x-3 min-w-0 flex-1">
+                            <Video className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-slate-900 break-words [overflow-wrap:anywhere]">{lec.title}</p>
+                              {lec.description && (
+                                <p className="text-[11px] text-slate-500 break-words [overflow-wrap:anywhere] line-clamp-2">
+                                  {lec.description}
+                                </p>
+                              )}
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-auto">
                             {lec.videoUrl && (
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold whitespace-nowrap">
                                 Video Attached
                               </span>
                             )}
-                            <button onClick={() => openEditLectureModal(sIdx, lIdx)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer">
+                            <button
+                              type="button"
+                              onClick={() => openEditLectureModal(sIdx, lIdx)}
+                              className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer"
+                              title="Edit Lecture"
+                              aria-label="Edit Lecture"
+                            >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => handleDeleteLecture(sIdx, lIdx)} className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLecture(sIdx, lIdx)}
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Delete Lecture"
+                              aria-label="Delete Lecture"
+                            >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -1070,19 +1381,21 @@ export const CourseBuilder = () => {
                   {/* Section Quiz (Configured independently per section) */}
                   <div className="pt-2 pl-4 border-l-2 border-slate-200">
                     {sec.quiz ? (
-                      <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                        <div className="flex items-start sm:items-center space-x-3">
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 font-bold">
+                      <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs overflow-hidden">
+                        <div className="flex items-start space-x-3 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 font-bold mt-0.5">
                             <HelpCircle className="w-4 h-4" />
                           </div>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-800">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-800 flex-shrink-0">
                                 Section Quiz
                               </span>
-                              <p className="font-bold text-slate-900 text-sm">{sec.quiz.title || `${sec.title} Quiz`}</p>
+                              <p className="font-bold text-slate-900 text-sm break-words [overflow-wrap:anywhere] min-w-0 flex-1">
+                                {sec.quiz.title || `${sec.title} Quiz`}
+                              </p>
                             </div>
-                            <div className="flex items-center space-x-3 text-[11px] text-slate-600 mt-1">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 mt-1">
                               <span>{sec.quiz.questions?.length || 0} Questions</span>
                               <span>•</span>
                               <span>{sec.quiz.timeLimitMinutes || 15} Mins</span>
@@ -1092,18 +1405,18 @@ export const CourseBuilder = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-2 self-end sm:self-center">
+                        <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-center">
                           <button
                             type="button"
                             onClick={() => openEditQuizModal(sIdx)}
-                            className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-800 font-semibold text-xs hover:bg-amber-50 cursor-pointer inline-flex items-center shadow-xs"
+                            className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-800 font-semibold text-xs hover:bg-amber-50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap"
                           >
                             <Edit3 className="w-3.5 h-3.5 mr-1" /> Edit Quiz
                           </button>
                           <button
                             type="button"
                             onClick={() => handleRemoveSectionQuiz(sIdx)}
-                            className="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600 font-semibold text-xs hover:bg-rose-50 cursor-pointer inline-flex items-center shadow-xs"
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-600 font-semibold text-xs hover:bg-rose-50 cursor-pointer inline-flex items-center shadow-xs whitespace-nowrap"
                             title="Remove Quiz"
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
@@ -1115,10 +1428,12 @@ export const CourseBuilder = () => {
                         <button
                           type="button"
                           onClick={() => openAddQuizModal(sIdx)}
-                          className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-dashed border-amber-300 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer"
+                          className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-dashed border-amber-300 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer max-w-full text-left"
                         >
-                          <Plus className="w-3.5 h-3.5 mr-1.5" />
-                          Add Quiz for {sec.title}
+                          <Plus className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
+                          <span className="break-words [overflow-wrap:anywhere]">
+                            Add Quiz for {sec.title}
+                          </span>
                         </button>
                       </div>
                     )}
@@ -1211,7 +1526,7 @@ export const CourseBuilder = () => {
                       {uploadingPdf ? 'Uploading PDFs...' : 'Upload PDF Files'}
                       <input
                         type="file"
-                        accept="application/pdf"
+                        accept=".pdf,application/pdf"
                         multiple
                         onChange={handlePdfUpload}
                         className="hidden"
@@ -1265,8 +1580,8 @@ export const CourseBuilder = () => {
                   Step 1 Verified
                 </span>
               </div>
-              <h3 className="text-lg font-extrabold text-slate-900">{title}</h3>
-              <p className="text-slate-600">{description || 'No description provided.'}</p>
+              <h3 className="text-lg font-extrabold text-slate-900 break-words [overflow-wrap:anywhere]">{title}</h3>
+              <p className="text-slate-600 break-words [overflow-wrap:anywhere]">{description || 'No description provided.'}</p>
               {benefits.length > 0 && (
                 <div className="pt-2">
                   <span className="font-bold text-slate-700">Course Benefits:</span>
@@ -1284,20 +1599,22 @@ export const CourseBuilder = () => {
               </h4>
               <div className="space-y-2">
                 {sections.map((sec, sIdx) => (
-                  <div key={sIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-slate-900">Section {sIdx + 1}: {sec.title}</p>
+                  <div key={sIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5 overflow-hidden">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <p className="font-bold text-slate-900 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                        Section {sIdx + 1}: {sec.title}
+                      </p>
                       {sec.quiz ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 flex-shrink-0 whitespace-nowrap self-start sm:self-auto">
                           Quiz: {sec.quiz.questions?.length || 0} Questions
                         </span>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-semibold">No Quiz</span>
+                        <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0 whitespace-nowrap self-start sm:self-auto">No Quiz</span>
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500">{sec.lectures?.length || 0} Lectures attached</p>
                     {sec.quiz && (
-                      <p className="text-[11px] text-amber-700 font-medium">
+                      <p className="text-[11px] text-amber-700 font-medium break-words [overflow-wrap:anywhere]">
                         ✦ Quiz: {sec.quiz.title} ({sec.quiz.timeLimitMinutes || 15}m • Pass: {sec.quiz.passingScorePercent || 70}%)
                       </p>
                     )}
@@ -1397,7 +1714,12 @@ export const CourseBuilder = () => {
       </Modal>
 
       {/* LECTURE MODAL */}
-      <Modal isOpen={showLectureModal} onClose={() => setShowLectureModal(false)} title={editingLectureIdx !== null ? 'Edit Lecture' : 'Add Lecture Video'}>
+      <Modal
+        isOpen={showLectureModal}
+        onClose={handleAttemptCloseLectureModal}
+        title={editingLectureIdx !== null ? 'Edit Lecture' : 'Add Lecture Video'}
+        closeOnBackdropClick={false}
+      >
         <form onSubmit={handleSaveLecture} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Title *</label>
@@ -1425,18 +1747,33 @@ export const CourseBuilder = () => {
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Video *</label>
             <div className="flex flex-wrap items-center gap-3">
-              <label className="cursor-pointer inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800">
+              <label
+                className={`inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
+                  uploadingVideo
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-900 text-white hover:bg-slate-800 cursor-pointer'
+                }`}
+              >
                 <Upload className="w-4 h-4 mr-1.5 text-emerald-400" />
-                {uploadingVideo ? 'Uploading Video...' : 'Upload Video File'}
-                <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" disabled={uploadingVideo} />
+                {uploadingVideo ? `Uploading (${videoUploadProgress}%)...` : (lectureVideoUrl ? 'Replace Video File' : 'Upload Video File')}
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleVideoUpload}
+                  className="hidden"
+                  disabled={uploadingVideo}
+                />
               </label>
-              {lectureVideoUrl && (
+
+              {lectureVideoUrl && !uploadingVideo && (
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs text-emerald-600 font-mono font-bold truncate max-w-xs">Video Attached</span>
+                  <div className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" />
+                    <span>{videoUploadState === 'success' ? 'Upload Complete' : 'Video Attached'}</span>
+                  </div>
                   <button
                     type="button"
                     onClick={handleDeleteLectureVideo}
-                    disabled={uploadingVideo}
                     className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5 mr-1" />
@@ -1445,36 +1782,105 @@ export const CourseBuilder = () => {
                 </div>
               )}
             </div>
+
+            {/* Actual Linear Progress Bar during upload */}
+            {uploadingVideo && (
+              <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700 flex items-center">
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600 animate-spin" />
+                    Uploading Video File...
+                  </span>
+                  <span className="font-bold text-emerald-600 font-mono">
+                    Uploading {videoUploadProgress}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-emerald-600 h-2 rounded-full transition-all duration-150 ease-out"
+                    style={{ width: `${videoUploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Upload Error Banner if upload fails */}
+            {!uploadingVideo && videoUploadError && (
+              <div className="mt-2 text-xs text-rose-600 flex items-center font-medium bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                <AlertCircle className="w-4 h-4 mr-1.5 shrink-0 text-rose-500" />
+                <span>{videoUploadError}</span>
+              </div>
+            )}
           </div>
 
           <div className="pt-4 border-t border-slate-200 flex justify-end space-x-3">
-            <button type="button" onClick={() => setShowLectureModal(false)} className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer">
+            <button
+              type="button"
+              onClick={handleAttemptCloseLectureModal}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+            >
               Cancel
             </button>
-            <button type="submit" className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700">
-              Save Lecture
+            <button
+              type="submit"
+              disabled={uploadingVideo || !lectureVideoUrl || !lectureTitle.trim()}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold text-white transition-colors shadow-xs ${
+                uploadingVideo || !lectureVideoUrl || !lectureTitle.trim()
+                  ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+              }`}
+            >
+              {uploadingVideo ? (
+                <span className="inline-flex items-center">
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Uploading ({videoUploadProgress}%)...
+                </span>
+              ) : (
+                'Save Lecture'
+              )}
             </button>
           </div>
         </form>
       </Modal>
+
+      {/* CANCEL UPLOAD CONFIRMATION MODAL */}
+      <ConfirmationModal
+        isOpen={showCancelUploadConfirm}
+        onClose={() => setShowCancelUploadConfirm(false)}
+        onConfirm={handleConfirmCancelUpload}
+        title="Cancel Video Upload?"
+        message="Video upload is in progress. Leaving now will cancel the upload. Are you sure?"
+        confirmText="Yes, Cancel Upload"
+        cancelText="Stay / Continue Upload"
+        variant="warning"
+        closeOnBackdropClick={false}
+      />
 
       {/* SECTION QUIZ MODAL */}
       <Modal
         isOpen={showQuizModal}
         onClose={() => setShowQuizModal(false)}
         title={targetSectionIdx !== null && sections[targetSectionIdx]?.quiz ? `Edit Quiz — ${sections[targetSectionIdx]?.title}` : `Add Quiz — ${sections[targetSectionIdx]?.title || 'Section'}`}
+        maxWidth="max-w-2xl"
+        contentClassName="flex-1 flex flex-col min-h-0 overflow-hidden p-0 text-slate-800 dark:text-slate-200"
       >
-        <form onSubmit={handleSaveSectionQuiz} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <form onSubmit={handleSaveSectionQuiz} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          {/* Scrollable Form Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Quiz Title <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Quiz Title <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[10px] text-slate-400">{quizTitle.length}/100</span>
+              </div>
               <input
                 type="text"
                 value={quizTitle}
                 onChange={(e) => setQuizTitle(e.target.value)}
                 required
+                maxLength={100}
                 placeholder="e.g. Section Assessment Quiz"
                 className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
               />
@@ -1536,23 +1942,38 @@ export const CourseBuilder = () => {
                           if (newType === 'TRUE_FALSE') {
                             updated[qIdx].options = ['True', 'False'];
                             updated[qIdx].correctAnswerIndex = 0;
+                            updated[qIdx].correctAnswerIndices = [0];
                             updated[qIdx].correctAnswerText = 'True';
                           } else if (newType === 'FILL_IN_BLANK') {
                             updated[qIdx].options = [];
                             updated[qIdx].correctAnswerIndex = null;
+                            updated[qIdx].correctAnswerIndices = [];
                             updated[qIdx].correctAnswerText = '';
+                          } else if (newType === 'MSQ') {
+                            if (!updated[qIdx].options || updated[qIdx].options.length < 2) {
+                              updated[qIdx].options = ['', '', '', ''];
+                            }
+                            const existing = (updated[qIdx].correctAnswerIndices && updated[qIdx].correctAnswerIndices.length > 0)
+                              ? updated[qIdx].correctAnswerIndices
+                              : (updated[qIdx].correctAnswerIndex !== null && updated[qIdx].correctAnswerIndex !== undefined ? [updated[qIdx].correctAnswerIndex] : [0]);
+                            updated[qIdx].correctAnswerIndices = existing;
+                            updated[qIdx].correctAnswerIndex = existing[0] ?? 0;
+                            updated[qIdx].correctAnswerText = existing.map(i => updated[qIdx].options[i]).filter(Boolean).join(', ');
                           } else {
                             if (!updated[qIdx].options || updated[qIdx].options.length < 2) {
                               updated[qIdx].options = ['', '', '', ''];
                             }
-                            updated[qIdx].correctAnswerIndex = 0;
-                            updated[qIdx].correctAnswerText = updated[qIdx].options[0] || '';
+                            const firstIdx = updated[qIdx].correctAnswerIndices?.[0] ?? updated[qIdx].correctAnswerIndex ?? 0;
+                            updated[qIdx].correctAnswerIndex = firstIdx;
+                            updated[qIdx].correctAnswerIndices = [firstIdx];
+                            updated[qIdx].correctAnswerText = updated[qIdx].options[firstIdx] || '';
                           }
                           setQuizQuestions(updated);
                         }}
                         className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 outline-none cursor-pointer"
                       >
-                        <option value="MCQ">Multiple Choice (MCQ)</option>
+                        <option value="MCQ">Multiple Choice (Single Answer)</option>
+                        <option value="MSQ">Multiple Select (Checkboxes)</option>
                         <option value="TRUE_FALSE">True / False</option>
                         <option value="FILL_IN_BLANK">Fill in the Blank</option>
                       </select>
@@ -1571,9 +1992,20 @@ export const CourseBuilder = () => {
                   </div>
 
                   <div>
-                    <input
-                      type="text"
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Question Text <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">{(q.questionText || '').length}/500</span>
+                    </div>
+                    <textarea
+                      rows={2}
+                      maxLength={500}
                       value={q.questionText}
+                      onInput={(e) => {
+                        e.target.style.height = 'auto';
+                        e.target.style.height = `${e.target.scrollHeight}px`;
+                      }}
                       onChange={(e) => {
                         const updated = [...quizQuestions];
                         updated[qIdx].questionText = e.target.value;
@@ -1581,7 +2013,7 @@ export const CourseBuilder = () => {
                       }}
                       required
                       placeholder="Enter the question text..."
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600 resize-y min-h-[56px] leading-relaxed break-words"
                     />
                   </div>
 
@@ -1592,7 +2024,7 @@ export const CourseBuilder = () => {
                         Options (select radio for correct answer):
                       </span>
                       {(q.options || ['', '', '', '']).map((opt, optIdx) => (
-                        <div key={optIdx} className="flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200">
+                        <div key={optIdx} className="flex items-start space-x-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
                           <input
                             type="radio"
                             name={`correct_opt_${qIdx}`}
@@ -1600,28 +2032,106 @@ export const CourseBuilder = () => {
                             onChange={() => {
                               const updated = [...quizQuestions];
                               updated[qIdx].correctAnswerIndex = optIdx;
+                              updated[qIdx].correctAnswerIndices = [optIdx];
                               updated[qIdx].correctAnswerText = opt;
                               setQuizQuestions(updated);
                             }}
-                            className="text-amber-600 cursor-pointer"
+                            className="text-amber-600 cursor-pointer mt-2 flex-shrink-0"
                           />
-                          <input
-                            type="text"
-                            value={opt}
-                            onChange={(e) => {
-                              const updated = [...quizQuestions];
-                              if (!updated[qIdx].options) updated[qIdx].options = ['', '', '', ''];
-                              updated[qIdx].options[optIdx] = e.target.value;
-                              if (Number(updated[qIdx].correctAnswerIndex) === optIdx) {
-                                updated[qIdx].correctAnswerText = e.target.value;
-                              }
-                              setQuizQuestions(updated);
-                            }}
-                            placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
-                            className="flex-1 bg-transparent border-none text-xs text-slate-900 outline-none focus:ring-0"
-                          />
+                          <div className="flex-1 min-w-0 flex flex-col">
+                            <textarea
+                              rows={1}
+                              maxLength={200}
+                              value={opt}
+                              onInput={(e) => {
+                                e.target.style.height = 'auto';
+                                e.target.style.height = `${e.target.scrollHeight}px`;
+                              }}
+                              onChange={(e) => {
+                                const updated = [...quizQuestions];
+                                if (!updated[qIdx].options) updated[qIdx].options = ['', '', '', ''];
+                                updated[qIdx].options[optIdx] = e.target.value;
+                                if (Number(updated[qIdx].correctAnswerIndex) === optIdx) {
+                                  updated[qIdx].correctAnswerText = e.target.value;
+                                }
+                                setQuizQuestions(updated);
+                              }}
+                              placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
+                              className="w-full bg-transparent border-none text-xs text-slate-900 outline-none focus:ring-0 resize-y min-h-[32px] leading-relaxed break-words p-0"
+                            />
+                            <div className="flex justify-end pt-0.5">
+                              <span className="text-[9px] text-slate-400">{(opt || '').length}/200</span>
+                            </div>
+                          </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* MSQ Options Rendering (Checkboxes) */}
+                  {currentType === 'MSQ' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Options (Select checkboxes for all correct answers):
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          {(q.correctAnswerIndices || []).length} Correct Selected
+                        </span>
+                      </div>
+                      {(q.options || ['', '', '', '']).map((opt, optIdx) => {
+                        const isChecked = (q.correctAnswerIndices || []).includes(optIdx);
+                        return (
+                          <div key={optIdx} className="flex items-start space-x-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <input
+                              type="checkbox"
+                              name={`correct_msq_${qIdx}_${optIdx}`}
+                              checked={isChecked}
+                              onChange={() => {
+                                const updated = [...quizQuestions];
+                                const currentIndices = updated[qIdx].correctAnswerIndices || [];
+                                let nextIndices;
+                                if (currentIndices.includes(optIdx)) {
+                                  nextIndices = currentIndices.filter(i => i !== optIdx);
+                                } else {
+                                  nextIndices = [...currentIndices, optIdx].sort((a, b) => a - b);
+                                }
+                                updated[qIdx].correctAnswerIndices = nextIndices;
+                                updated[qIdx].correctAnswerIndex = nextIndices.length > 0 ? nextIndices[0] : null;
+                                updated[qIdx].correctAnswerText = nextIndices.map(i => updated[qIdx].options[i]).filter(Boolean).join(', ');
+                                setQuizQuestions(updated);
+                              }}
+                              className="text-emerald-600 rounded cursor-pointer mt-2 flex-shrink-0 w-4 h-4 accent-emerald-600"
+                            />
+                            <div className="flex-1 min-w-0 flex flex-col">
+                              <textarea
+                                rows={1}
+                                maxLength={200}
+                                value={opt}
+                                onInput={(e) => {
+                                  e.target.style.height = 'auto';
+                                  e.target.style.height = `${e.target.scrollHeight}px`;
+                                }}
+                                onChange={(e) => {
+                                  const updated = [...quizQuestions];
+                                  if (!updated[qIdx].options) updated[qIdx].options = ['', '', '', ''];
+                                  updated[qIdx].options[optIdx] = e.target.value;
+                                  updated[qIdx].correctAnswerText = (updated[qIdx].correctAnswerIndices || [])
+                                    .map(i => updated[qIdx].options[i])
+                                    .filter(Boolean)
+                                    .join(', ');
+                                  setQuizQuestions(updated);
+                                }}
+                                placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
+                                className="w-full bg-transparent border-none text-xs text-slate-900 outline-none focus:ring-0 resize-y min-h-[32px] leading-relaxed break-words p-0"
+                              />
+                              <div className="flex justify-end pt-0.5">
+                                <span className="text-[9px] text-slate-400">{(opt || '').length}/200</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1667,42 +2177,62 @@ export const CourseBuilder = () => {
                   {/* Fill in the Blank Field Rendering */}
                   {currentType === 'FILL_IN_BLANK' && (
                     <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer Text:</label>
-                      <input
-                        type="text"
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer Text:</label>
+                        <span className="text-[10px] text-slate-400">{(q.correctAnswerText || '').length}/200</span>
+                      </div>
+                      <textarea
+                        rows={1}
+                        maxLength={200}
                         value={q.correctAnswerText || ''}
+                        onInput={(e) => {
+                          e.target.style.height = 'auto';
+                          e.target.style.height = `${e.target.scrollHeight}px`;
+                        }}
                         onChange={(e) => {
                           const updated = [...quizQuestions];
                           updated[qIdx].correctAnswerText = e.target.value;
                           setQuizQuestions(updated);
                         }}
                         placeholder="Enter expected correct text (evaluation is case-insensitive)..."
-                        className="w-full px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none"
+                        className="w-full px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600 resize-y min-h-[36px] leading-relaxed break-words"
                       />
                     </div>
                   )}
                 </div>
               );
             })}
+            </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-200 flex justify-end space-x-3 sticky bottom-0 bg-white py-2">
+          {/* Fixed Footer Action Buttons */}
+          <div className="flex-shrink-0 px-4 sm:px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex justify-end space-x-3">
             <button
               type="button"
               onClick={() => setShowQuizModal(false)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 text-white cursor-pointer hover:bg-amber-700"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 text-white cursor-pointer hover:bg-amber-700 transition-colors shadow-xs"
             >
               Save Section Quiz
             </button>
           </div>
         </form>
       </Modal>
+
+      {/* REUSABLE CUSTOM CONFIRMATION MODAL */}
+      <ConfirmationModal
+        isOpen={confirmDialog.isOpen}
+        onClose={closeConfirmDialog}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+      />
     </div>
   );
 };

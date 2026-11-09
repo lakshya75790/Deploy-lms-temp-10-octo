@@ -62,6 +62,8 @@ export const formatAuditAction = (action) => {
   const raw = String(action).trim();
 
   const actionMap = {
+    CREATE_ORGANIZATION: 'Create Organization',
+    UPDATE_ORGANIZATION_LICENSE_DATES: 'Update Organization License',
     CHANGE_PASSWORD: 'Change Password',
     CREATE_USER: 'Create User',
     UPDATE_USER: 'Update User',

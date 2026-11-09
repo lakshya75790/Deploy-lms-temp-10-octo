@@ -153,6 +153,18 @@ const assignTraining = async (req, res, next) => {
       throw new ApiError(400, 'trainingId and assignmentType are required');
     }
 
+    if (customDeadline) {
+      const deadlineDate = new Date(customDeadline);
+      if (isNaN(deadlineDate.getTime())) {
+        throw new ApiError(400, 'Invalid custom completion deadline date format');
+      }
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      if (deadlineDate < startOfToday) {
+        throw new ApiError(400, 'Custom completion deadline cannot be in the past. Please select a future date.');
+      }
+    }
+
     let result;
 
     if (assignmentType === 'dept_role') {
@@ -416,7 +428,12 @@ const getAllAssignments = async (req, res, next) => {
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
     const userId = String(req.user.id || req.user._id);
 
-    const whereClause = { organizationId: orgId };
+    const whereClause = {
+      organizationId: orgId,
+      employee: {
+        status: { in: ['active', 'ACTIVE'] }
+      }
+    };
 
     if (req.user.role === 'Instructor') {
       const ownedTrainings = await prisma.training.findMany({
@@ -434,23 +451,25 @@ const getAllAssignments = async (req, res, next) => {
     const assignmentsList = await prisma.trainingAssignment.findMany({
       where: whereClause,
       include: {
-        employee: { select: { id: true, name: true, email: true, departmentId: true, jobRole: true, profilePicture: true } },
+        employee: { select: { id: true, name: true, email: true, departmentId: true, jobRole: true, profilePicture: true, status: true } },
         training: { select: { id: true, title: true, description: true, durationDays: true, category: { select: { id: true, name: true } }, department: { select: { id: true, name: true } } } },
         assigner: { select: { id: true, name: true, email: true } }
       },
       orderBy: { assignedDate: 'desc' }
     });
 
-    const assignments = assignmentsList.map(a => {
-      const transformed = withId(a);
-      if (transformed.employee) transformed.employeeId = transformed.employee;
-      if (transformed.training) {
-        transformed.trainingId = transformed.training;
-        if (transformed.training.category) transformed.trainingId.categoryId = transformed.training.category;
-      }
-      if (transformed.assigner) transformed.assignedBy = transformed.assigner;
-      return transformed;
-    });
+    const assignments = assignmentsList
+      .filter(a => a.employee && (a.employee.status === 'active' || a.employee.status === 'ACTIVE'))
+      .map(a => {
+        const transformed = withId(a);
+        if (transformed.employee) transformed.employeeId = transformed.employee;
+        if (transformed.training) {
+          transformed.trainingId = transformed.training;
+          if (transformed.training.category) transformed.trainingId.categoryId = transformed.training.category;
+        }
+        if (transformed.assigner) transformed.assignedBy = transformed.assigner;
+        return transformed;
+      });
 
     res.status(200).json(new ApiResponse(200, { assignments }, 'All assignments retrieved successfully'));
   } catch (error) {
@@ -568,7 +587,7 @@ const lockTraining = async (req, res, next) => {
       where: { id: aId, organizationId: orgId },
       include: {
         training: true,
-        employee: { select: { id: true, name: true, email: true } }
+        employee: { select: { id: true, name: true, email: true, status: true } }
       }
     });
 
@@ -578,6 +597,11 @@ const lockTraining = async (req, res, next) => {
 
     if (req.user.role === 'Instructor' && assignment.training.createdBy !== userId) {
       throw new ApiError(403, 'Not authorized to lock this training');
+    }
+
+    // Validation for BUG-025: Prevent locking training for inactive/deactivated/blocked learners
+    if (!assignment.employee || (assignment.employee.status && assignment.employee.status.toLowerCase() !== 'active')) {
+      throw new ApiError(400, 'Cannot lock training access for an inactive or deactivated learner account');
     }
 
     if (assignment.status === 'Completed' || assignment.progressPercentage === 100) {
