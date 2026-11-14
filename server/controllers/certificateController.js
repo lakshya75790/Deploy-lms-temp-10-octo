@@ -74,7 +74,7 @@ const getOrgCertificates = async (req, res, next) => {
         employee: {
           select: { id: true, name: true, email: true, department: { select: { id: true, name: true } } }
         },
-        training: { select: { id: true, title: true } },
+        training: { select: { id: true, title: true, thumbnailUrl: true, category: { select: { id: true, name: true } } } },
         organization: { select: { id: true, name: true, code: true } }
       },
       orderBy: { completionDate: 'desc' }
@@ -112,7 +112,7 @@ const getInstructorCertificates = async (req, res, next) => {
             employee: {
               select: { id: true, name: true, email: true, department: { select: { id: true, name: true } } }
             },
-            training: { select: { id: true, title: true } },
+            training: { select: { id: true, title: true, thumbnailUrl: true, category: { select: { id: true, name: true } } } },
             organization: { select: { id: true, name: true, code: true } }
           },
           orderBy: { completionDate: 'desc' }
@@ -172,12 +172,40 @@ const getCertificateById = async (req, res, next) => {
       throw new ApiError(403, 'You are not authorized to access another organization\'s certificate');
     }
 
+    let orgAdmin = null;
+    if (certificate.organizationId) {
+      orgAdmin = await prisma.user.findFirst({
+        where: { organizationId: certificate.organizationId, role: 'Admin' },
+        select: { name: true }
+      });
+    }
+
+    const certWithAdmin = {
+      ...withId(certificate),
+      adminName: orgAdmin?.name || certificate.templateSnapshot?.adminName || certificate.templateSnapshot?.signatureName || 'Organization Administrator'
+    };
+
     res.status(200).json(
-      new ApiResponse(200, { certificate: withId(certificate) }, 'Certificate details retrieved successfully')
+      new ApiResponse(200, { certificate: certWithAdmin }, 'Certificate details retrieved successfully')
     );
   } catch (error) {
     next(error);
   }
+};
+
+const parseTemplateDesign = (template) => {
+  if (!template) return template;
+  const res = withId(template);
+  if (res.layoutStyle && (res.layoutStyle.startsWith('{') || res.layoutStyle.startsWith('['))) {
+    try {
+      res.customDesign = JSON.parse(res.layoutStyle);
+    } catch (e) {
+      res.customDesign = null;
+    }
+  } else {
+    res.customDesign = null;
+  }
+  return res;
 };
 
 /**
@@ -190,9 +218,13 @@ const getTemplateSettings = async (req, res, next) => {
     const orgId = String(req.user.organizationId);
 
     const template = await getOrCreateTemplateSettings(orgId);
+    const parsed = parseTemplateDesign(template);
+    if (req.user?.name) {
+      parsed.adminName = req.user.name;
+    }
 
     res.status(200).json(
-      new ApiResponse(200, { template }, 'Certificate template settings retrieved')
+      new ApiResponse(200, { template: parsed }, 'Certificate template settings retrieved')
     );
   } catch (error) {
     next(error);
@@ -214,6 +246,7 @@ const updateTemplateSettings = async (req, res, next) => {
       fontFamily,
       borderStyle,
       layoutStyle,
+      customDesign,
       logoUrl,
       logoPublicId,
       logoPosition,
@@ -233,7 +266,12 @@ const updateTemplateSettings = async (req, res, next) => {
     if (accentColor !== undefined) updateData.accentColor = String(accentColor).trim();
     if (fontFamily !== undefined) updateData.fontFamily = String(fontFamily).trim();
     if (borderStyle !== undefined) updateData.borderStyle = String(borderStyle).trim();
-    if (layoutStyle !== undefined) updateData.layoutStyle = String(layoutStyle).trim();
+    
+    if (customDesign !== undefined) {
+      updateData.layoutStyle = typeof customDesign === 'object' ? JSON.stringify(customDesign) : String(customDesign);
+    } else if (layoutStyle !== undefined) {
+      updateData.layoutStyle = String(layoutStyle).trim();
+    }
 
     if (logoUrl !== undefined) updateData.logoUrl = logoUrl ? String(logoUrl).trim() : null;
     if (logoPublicId !== undefined) updateData.logoPublicId = logoPublicId ? String(logoPublicId).trim() : null;
@@ -259,7 +297,7 @@ const updateTemplateSettings = async (req, res, next) => {
     }
 
     res.status(200).json(
-      new ApiResponse(200, { template: withId(template) }, 'Certificate template settings updated successfully')
+      new ApiResponse(200, { template: parseTemplateDesign(template) }, 'Certificate template settings updated successfully')
     );
   } catch (error) {
     next(error);
@@ -294,7 +332,7 @@ const resetTemplateSettings = async (req, res, next) => {
     }
 
     res.status(200).json(
-      new ApiResponse(200, { template: withId(template) }, 'Certificate template settings reset to default values')
+      new ApiResponse(200, { template: parseTemplateDesign(template) }, 'Certificate template settings reset to default values')
     );
   } catch (error) {
     next(error);

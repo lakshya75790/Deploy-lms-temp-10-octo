@@ -1,5 +1,10 @@
 const { prisma } = require('../config/prismaClient');
-const { sendUserNotification, sendInstructorNotification, sendAdminNotification } = require('./notificationService');
+const {
+  sendUserNotification,
+  sendInstructorNotification,
+  sendAdminNotification,
+  deleteOldNotifications
+} = require('./notificationService');
 
 /**
  * Check deadlines and trigger idempotent notifications for upcoming and overdue trainings
@@ -197,10 +202,14 @@ const initScheduler = () => {
   if (schedulerInterval) return;
 
   // Run immediately on boot
-  checkTrainingDeadlines();
+  checkTrainingDeadlines().catch(err => console.error('Error in initial checkTrainingDeadlines:', err));
+  deleteOldNotifications().catch(err => console.error('Error in initial deleteOldNotifications:', err));
 
   // Run periodic check every 15 minutes (900,000 ms)
-  schedulerInterval = setInterval(checkTrainingDeadlines, 15 * 60 * 1000);
+  schedulerInterval = setInterval(async () => {
+    await checkTrainingDeadlines().catch(err => console.error('Error in periodic checkTrainingDeadlines:', err));
+    await deleteOldNotifications().catch(err => console.error('Error in periodic deleteOldNotifications:', err));
+  }, 15 * 60 * 1000);
   console.log('[Scheduler] Training deadline monitoring scheduler started (15-min interval).');
 };
 

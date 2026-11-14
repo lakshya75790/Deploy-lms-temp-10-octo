@@ -58,8 +58,8 @@ const createDepartment = async (req, res, next) => {
     });
 
     if (existingDep && existingDep.status === 'active') {
-      throw new ApiError(400, `Department '${cleanName}' already exists. Please use a different name.`, [
-        { field: 'name', message: `Department '${cleanName}' already exists. Please use a different name.` }
+      throw new ApiError(400, `Group '${cleanName}' already exists. Please use a different name.`, [
+        { field: 'name', message: `Group '${cleanName}' already exists. Please use a different name.` }
       ]);
     }
 
@@ -87,9 +87,9 @@ const createDepartment = async (req, res, next) => {
       });
     }
 
-    logAuditAction(req.user, 'CREATE_DEPARTMENT', 'Department', department.id, `Created department ${department.name}`).catch(err => console.error('Audit log error in createDepartment:', err));
+    logAuditAction(req.user, 'CREATE_GROUP', 'Group', department.id, `Created group ${department.name}`).catch(err => console.error('Audit log error in createDepartment:', err));
 
-    res.status(201).json(new ApiResponse(201, { department: withId(department) }, 'Department created successfully'));
+    res.status(201).json(new ApiResponse(201, { department: withId(department) }, 'Group created successfully'));
   } catch (error) {
     next(error);
   }
@@ -199,9 +199,9 @@ const updateDepartment = async (req, res, next) => {
       data: updateData
     });
 
-    logAuditAction(req.user, 'UPDATE_DEPARTMENT', 'Department', updatedDepartment.id, `Updated department ${updatedDepartment.name}`).catch(err => console.error('Audit log error in updateDepartment:', err));
+    logAuditAction(req.user, 'UPDATE_GROUP', 'Group', updatedDepartment.id, `Updated group ${updatedDepartment.name}`).catch(err => console.error('Audit log error in updateDepartment:', err));
 
-    res.status(200).json(new ApiResponse(200, { department: withId(updatedDepartment) }, 'Department updated successfully'));
+    res.status(200).json(new ApiResponse(200, { department: withId(updatedDepartment) }, 'Group updated successfully'));
   } catch (error) {
     next(error);
   }
@@ -225,7 +225,7 @@ const deleteDepartment = async (req, res, next) => {
     });
 
     if (!department) {
-      throw new ApiError(404, 'Department not found');
+      throw new ApiError(404, 'Group not found');
     }
 
     const deactivatedDepartment = await prisma.department.update({
@@ -233,9 +233,9 @@ const deleteDepartment = async (req, res, next) => {
       data: { status: 'deactivated' }
     });
 
-    logAuditAction(req.user, 'DEACTIVATE_DEPARTMENT', 'Department', deactivatedDepartment.id, `Deactivated department ${deactivatedDepartment.name}`).catch(err => console.error('Audit log error in deleteDepartment:', err));
+    logAuditAction(req.user, 'DEACTIVATE_GROUP', 'Group', deactivatedDepartment.id, `Deactivated group ${deactivatedDepartment.name}`).catch(err => console.error('Audit log error in deleteDepartment:', err));
 
-    res.status(200).json(new ApiResponse(200, {}, 'Department deactivated successfully'));
+    res.status(200).json(new ApiResponse(200, {}, 'Group deactivated successfully'));
   } catch (error) {
     next(error);
   }

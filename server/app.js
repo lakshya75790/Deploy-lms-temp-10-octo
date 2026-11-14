@@ -38,9 +38,33 @@ app.use((req, res, next) => {
 
 app.set('trust proxy', 1);
 
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'https://lms-org-rho.vercel.app',
+  'https://lms.itsoftlab360.com'
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.itsoftlab360.com') ||
+      /^http:\/\/localhost:\d+$/.test(origin) ||
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+    ) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Server-Cache', 'Content-Disposition', 'Content-Length', 'Content-Type', 'Accept-Ranges', 'Content-Range'],
   maxAge: 86400
 }));
 
@@ -52,9 +76,27 @@ app.use(invalidateServerCache);
 // Serve uploads directory statically for local media storage fallback
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
-// Health Check Endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json(new ApiResponse(200, { status: 'healthy', timestamp: new Date() }, 'Server is operational'));
+// Health Check Endpoint (verifies PostgreSQL connection & latency)
+app.get('/api/health', async (req, res) => {
+  try {
+    const start = Date.now();
+    const { prisma } = require('./config/prismaClient');
+    await prisma.$queryRaw`SELECT 1`;
+    const latencyMs = Date.now() - start;
+    res.status(200).json(new ApiResponse(200, {
+      status: 'healthy',
+      database: 'connected',
+      latencyMs,
+      timestamp: new Date()
+    }, 'Server and database operational'));
+  } catch (error) {
+    res.status(503).json(new ApiResponse(503, {
+      status: 'unhealthy',
+      database: 'disconnected',
+      error: error.message || 'Database connection failed',
+      timestamp: new Date()
+    }, 'Database connection error'));
+  }
 });
 
 // API Routes

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useInvalidateLmsQueries } from '../../hooks/useLmsQueries';
 import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
 import { Building2, Plus, Edit2, Trash2, Briefcase, Check, X, Tag, AlertTriangle, Power, AlertCircle, Search } from 'lucide-react';
 import { validateGroupName, validateGroupDescription } from '../../utils/userValidation';
@@ -14,6 +15,8 @@ export const Departments = () => {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
 
   const [showModal, setShowModal] = useState(false);
   const [editingDept, setEditingDept] = useState(null);
@@ -22,7 +25,7 @@ export const Departments = () => {
   const [roleInput, setRoleInput] = useState('');
   const [jobRoles, setJobRoles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState({ name: '', description: '' });
+  const [fieldErrors, setFieldErrors] = useState({ name: '', description: '', role: '' });
 
   // Deactivation confirmation modal state
   const [deptToDeactivate, setDeptToDeactivate] = useState(null);
@@ -50,7 +53,7 @@ export const Departments = () => {
     setDescription('');
     setJobRoles([]);
     setRoleInput('');
-    setFieldErrors({ name: '', description: '' });
+    setFieldErrors({ name: '', description: '', role: '' });
     setShowModal(true);
   };
 
@@ -60,16 +63,35 @@ export const Departments = () => {
     setDescription(dept.description || '');
     setJobRoles(dept.jobRoles || []);
     setRoleInput('');
-    setFieldErrors({ name: '', description: '' });
+    setFieldErrors({ name: '', description: '', role: '' });
     setShowModal(true);
   };
 
   const handleAddRole = (e) => {
-    e.preventDefault();
-    if (roleInput.trim() && !jobRoles.includes(roleInput.trim())) {
-      setJobRoles([...jobRoles, roleInput.trim()]);
-      setRoleInput('');
+    if (e) e.preventDefault();
+    const cleanRole = roleInput.trim();
+    if (!cleanRole) return;
+
+    if (cleanRole.length > 50) {
+      setFieldErrors(prev => ({ ...prev, role: 'Subgroup name cannot exceed 50 characters' }));
+      return;
     }
+    if (cleanRole.length < 2) {
+      setFieldErrors(prev => ({ ...prev, role: 'Subgroup name must be at least 2 characters' }));
+      return;
+    }
+    if (jobRoles.length >= 30) {
+      setFieldErrors(prev => ({ ...prev, role: 'Maximum 30 subgroups can be mapped per group' }));
+      return;
+    }
+    if (jobRoles.some(r => r.toLowerCase() === cleanRole.toLowerCase())) {
+      setFieldErrors(prev => ({ ...prev, role: `Subgroup "${cleanRole}" is already added` }));
+      return;
+    }
+
+    setJobRoles([...jobRoles, cleanRole]);
+    setRoleInput('');
+    setFieldErrors(prev => ({ ...prev, role: '' }));
   };
 
   const handleRoleKeyDown = (e) => {
@@ -207,14 +229,30 @@ export const Departments = () => {
     return nameMatch || descMatch || rolesMatch;
   });
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  const totalPages = Math.ceil(filteredDepartments.length / pageSize) || 1;
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedDepartments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredDepartments.slice(start, start + pageSize);
+  }, [filteredDepartments, currentPage, pageSize]);
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Groups & Roles</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading">Groups & Subgroups</h1>
           <p className="text-xs text-slate-500">
-            Organize learners into groups and define roles for streamlined training assignment.
+            Organize learners into groups and define subgroups for streamlined training assignment.
           </p>
         </div>
         <button
@@ -235,7 +273,7 @@ export const Departments = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by group name or role name..."
+              placeholder="Search by group name or subgroup name..."
               className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
             />
             {search && (
@@ -270,7 +308,7 @@ export const Departments = () => {
         <EmptyState
           icon={Building2}
           title="No Groups Created"
-          description="Create your first group to organize learners and map roles."
+          description="Create your first group to organize learners and map subgroups."
           action={
             <button onClick={openCreateModal} className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs">
               Create Group
@@ -280,8 +318,8 @@ export const Departments = () => {
       ) : filteredDepartments.length === 0 ? (
         <EmptyState
           icon={Building2}
-          title="No Matching Groups or Roles"
-          description={`No groups or roles matched "${search.trim()}". Try searching for a different group name or role.`}
+          title="No Matching Groups or Subgroups"
+          description={`No groups or subgroups matched "${search.trim()}". Try searching for a different group name or subgroup.`}
           action={
             <button
               onClick={() => setSearch('')}
@@ -292,9 +330,10 @@ export const Departments = () => {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredDepartments.map((d) => {
-            const deptId = d._id || d.id;
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {paginatedDepartments.map((d) => {
+              const deptId = d._id || d.id;
             return (
               <div
                 key={deptId}
@@ -341,22 +380,22 @@ export const Departments = () => {
 
                   {/* Group Description */}
                   <p
-                    className="text-xs text-slate-600 leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-3"
+                    className="text-xs text-slate-600 leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-2 min-h-[2.5rem]"
                     title={d.description || 'No group description provided.'}
                   >
                     {d.description || 'No group description provided.'}
                   </p>
                 </div>
 
-                {/* Footer: Mapped Roles */}
+                {/* Footer: Mapped Subgroups */}
                 <div className="pt-4 border-t border-slate-100 space-y-2 min-w-0">
                   <p className="text-[11px] font-semibold text-slate-700 flex items-center">
                     <Briefcase className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" />
-                    Mapped Roles ({d.jobRoles?.length || 0}):
+                    Mapped Subgroups ({d.jobRoles?.length || 0}):
                   </p>
                   <div className="flex flex-wrap gap-1.5 max-w-full">
                     {(!d.jobRoles || d.jobRoles.length === 0) ? (
-                      <span className="text-[11px] text-slate-400 italic">No roles mapped yet.</span>
+                      <span className="text-[11px] text-slate-400 italic">No subgroups mapped yet.</span>
                     ) : (
                       d.jobRoles.map((role) => (
                         <span
@@ -373,6 +412,16 @@ export const Departments = () => {
               </div>
             );
           })}
+          </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredDepartments.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="groups"
+            className="rounded-2xl border border-slate-200 bg-white"
+          />
         </div>
       )}
 
@@ -395,7 +444,7 @@ export const Departments = () => {
               }}
               required
               maxLength={60}
-              placeholder="e.g. Engineering, Class 10-A, JEE Morning Batch"
+              placeholder="Enter group name"
               className={`w-full px-4 py-2.5 rounded-xl border bg-white text-sm text-slate-900 outline-none transition-all ${
                 fieldErrors.name
                   ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
@@ -441,30 +490,49 @@ export const Departments = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Mapped Roles
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Mapped Subgroups
+              </label>
+              <span className="text-[10px] text-slate-400">
+                {roleInput.length}/50 chars • Max 30 subgroups ({jobRoles.length}/30 mapped)
+              </span>
+            </div>
             <div className="flex space-x-2 mb-2">
               <input
                 type="text"
                 value={roleInput}
-                onChange={(e) => setRoleInput(e.target.value)}
+                maxLength={50}
+                onChange={(e) => {
+                  setRoleInput(e.target.value);
+                  if (fieldErrors.role) setFieldErrors(prev => ({ ...prev, role: '' }));
+                }}
                 onKeyDown={handleRoleKeyDown}
-                placeholder="e.g. Student, Developer, Teacher"
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                placeholder="Select subgroups to map with this group"
+                className={`flex-1 px-4 py-2.5 rounded-xl border bg-white text-sm text-slate-900 outline-none transition-all ${
+                  fieldErrors.role
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
               <button
                 type="button"
                 onClick={handleAddRole}
                 className="px-4 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold transition-colors cursor-pointer"
               >
-                Add Role
+                Add Subgroup
               </button>
             </div>
+            {fieldErrors.role && (
+              <p className="text-xs text-rose-600 mb-2 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                {fieldErrors.role}
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 min-h-[52px]">
               {jobRoles.length === 0 ? (
-                <span className="text-xs text-slate-400 italic p-1">No roles added yet. Type a role above and click 'Add Role'.</span>
+                <span className="text-xs text-slate-400 italic p-1">No subgroups added yet. Type a subgroup above and click 'Add Subgroup'.</span>
               ) : (
                 jobRoles.map((role) => (
                   <span key={role} className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700">
@@ -474,7 +542,7 @@ export const Departments = () => {
                       type="button"
                       onClick={() => handleRemoveRole(role)}
                       className="ml-2 text-emerald-600 hover:text-rose-600 transition-colors cursor-pointer"
-                      title="Remove Role"
+                      title="Remove Subgroup"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>

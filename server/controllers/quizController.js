@@ -140,12 +140,21 @@ const createQuiz = async (req, res, next) => {
       }
     }
 
+    let validatedTimeLimit = 15;
+    if (timeLimitMinutes !== undefined && timeLimitMinutes !== null && String(timeLimitMinutes).trim() !== '') {
+      const parsedTime = Number(timeLimitMinutes);
+      if (!Number.isFinite(parsedTime) || isNaN(parsedTime) || parsedTime < 1 || parsedTime > 600) {
+        throw new ApiError(400, 'Quiz duration must be between 1 and 600 minutes.');
+      }
+      validatedTimeLimit = Math.floor(parsedTime);
+    }
+
     const quiz = await prisma.quiz.create({
       data: {
         title: title.trim(),
         trainingId: training.id,
         subSectionId: targetSubSectionId || training.id,
-        timeLimitMinutes: Number(timeLimitMinutes) || 15,
+        timeLimitMinutes: validatedTimeLimit,
         passingScorePercent: Number(passingScorePercent) || 70,
         createdBy: instructorId,
         organizationId: orgId,
@@ -347,7 +356,13 @@ const updateQuiz = async (req, res, next) => {
 
     const updateData = {};
     if (title) updateData.title = title.trim();
-    if (timeLimitMinutes) updateData.timeLimitMinutes = Number(timeLimitMinutes);
+    if (timeLimitMinutes !== undefined && timeLimitMinutes !== null && String(timeLimitMinutes).trim() !== '') {
+      const parsedTime = Number(timeLimitMinutes);
+      if (!Number.isFinite(parsedTime) || isNaN(parsedTime) || parsedTime < 1 || parsedTime > 600) {
+        throw new ApiError(400, 'Quiz duration must be between 1 and 600 minutes.');
+      }
+      updateData.timeLimitMinutes = Math.floor(parsedTime);
+    }
     if (passingScorePercent) updateData.passingScorePercent = Number(passingScorePercent);
 
     await prisma.quiz.update({

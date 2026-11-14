@@ -1,6 +1,8 @@
 import React from 'react';
 import { formatDate } from '../../utils/formatters';
 import { jsPDF } from 'jspdf';
+import { replaceTokens, renderSvgShape } from '../admin/certificateDesigner/designerUtils';
+import { renderCertificateBorder } from '../admin/certificateDesigner/borderDesigns';
 
 /**
  * Converts any image URL (remote HTTPS, local relative, or Blob URL) to a Base64 Data URL.
@@ -314,6 +316,210 @@ export const CertificateCanvas = ({
   const titleLines = formatTrainingTitleLines(trainingTitle);
   const empNameFontSize = getEmployeeNameFontSize(empName);
   const orgNameFontSize = getOrgNameFontSize(orgName);
+
+  let customDesign = snapshot.customDesign;
+  if (!customDesign && typeof snapshot.layoutStyle === 'string' && (snapshot.layoutStyle.startsWith('{') || snapshot.layoutStyle.startsWith('['))) {
+    try {
+      customDesign = JSON.parse(snapshot.layoutStyle);
+    } catch (e) {
+      customDesign = null;
+    }
+  }
+
+  // If this certificate has an advanced custom Canva design, render its elements tree!
+  if (customDesign && Array.isArray(customDesign.elements) && customDesign.elements.length > 0) {
+    const cWidth = customDesign.width || 1200;
+    const cHeight = customDesign.height || 850;
+    const bg = customDesign.background || {};
+    const isGradient = bg.type === 'gradient';
+    const sortedElements = [...customDesign.elements].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+
+    const resolvedAdminName =
+      certificate?.adminName ||
+      certificate?.organization?.adminName ||
+      certificate?.organization?.users?.find(u => u.role === 'Admin')?.name ||
+      snapshot.adminName ||
+      snapshot.signatureName ||
+      templateSettings?.signatureName ||
+      sampleData?.adminName ||
+      sampleData?.signatureName ||
+      'Organization Administrator';
+
+    const tokenContext = {
+      learnerName: empName,
+      courseName: trainingTitle,
+      completionDate: formattedDate,
+      certificateId: certId,
+      organizationName: orgName,
+      adminName: resolvedAdminName,
+      instructorName: resolvedAdminName
+    };
+
+    return (
+      <div
+        className={`relative text-slate-900 mx-auto flex items-center justify-center w-full h-full min-h-0 min-w-0 ${className}`}
+      >
+        <svg
+          id={elementId}
+          viewBox={`0 0 ${cWidth} ${cHeight}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="w-full h-full object-contain select-none block drop-shadow-xl rounded-2xl"
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            width: '100%',
+            height: '100%'
+          }}
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            {isGradient && (
+              <linearGradient id={`${elementId}_custom_bg`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={bg.gradientStart || '#ffffff'} />
+                <stop offset="100%" stopColor={bg.gradientEnd || '#f8fafc'} />
+              </linearGradient>
+            )}
+          </defs>
+
+          {/* Background */}
+          <rect
+            x={0}
+            y={0}
+            width={cWidth}
+            height={cHeight}
+            fill={isGradient ? `url(#${elementId}_custom_bg)` : bg.color || '#ffffff'}
+          />
+
+          {/* 20+ Outer Inset Border Designs */}
+          {renderCertificateBorder(
+            bg.borderStyle,
+            cWidth,
+            cHeight,
+            bg.borderColor || '#d97706',
+            bg.borderWidth || 3,
+            `${elementId}-border`
+          )}
+
+          {/* Render All Elements */}
+          {sortedElements.map((el) => {
+            if (el.hidden) return null;
+            const opacity = el.opacity !== undefined ? el.opacity : 1;
+            const transform = `translate(${el.x}, ${el.y}) rotate(${el.rotation || 0}, ${el.width / 2}, ${el.height / 2})`;
+
+            let contentNode = null;
+            if (el.type === 'text') {
+              const rawText = el.content || '';
+              const displayText = replaceTokens(rawText, tokenContext);
+              const lines = displayText.split('\n');
+              const fontSize = el.fontSize || 16;
+              const lineHeightMultiplier = el.lineHeight || 1.3;
+              const stepY = fontSize * lineHeightMultiplier;
+
+              let textAnchor = 'middle';
+              let textX = el.width / 2;
+              if (el.textAlign === 'left') {
+                textAnchor = 'start';
+                textX = 0;
+              } else if (el.textAlign === 'right') {
+                textAnchor = 'end';
+                textX = el.width;
+              }
+
+              contentNode = (
+                <text
+                  x={textX}
+                  y={fontSize}
+                  textAnchor={textAnchor}
+                  fill={el.color || '#0f172a'}
+                  fontSize={fontSize}
+                  fontFamily={el.fontFamily || 'Inter, sans-serif'}
+                  fontWeight={el.fontWeight || 'normal'}
+                  fontStyle={el.fontStyle || 'normal'}
+                  textDecoration={el.textDecoration || 'none'}
+                  letterSpacing={el.letterSpacing ? `${el.letterSpacing}px` : undefined}
+                >
+                  {lines.map((line, idx) => (
+                    <tspan key={idx} x={textX} dy={idx === 0 ? 0 : stepY}>
+                      {line || ' '}
+                    </tspan>
+                  ))}
+                </text>
+              );
+            } else if (el.type === 'shape') {
+              contentNode = renderSvgShape(el);
+            } else if (el.type === 'image') {
+              contentNode = (
+                <image
+                  href={el.src}
+                  xlinkHref={el.src}
+                  x={0}
+                  y={0}
+                  width={el.width}
+                  height={el.height}
+                  preserveAspectRatio={el.objectFit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}
+                />
+              );
+            } else if (el.type === 'signature') {
+              contentNode = (
+                <g>
+                  {el.src && (
+                    <image
+                      href={el.src}
+                      xlinkHref={el.src}
+                      x={0}
+                      y={0}
+                      width={el.width}
+                      height={el.height - (el.showLine ? 40 : 0)}
+                      preserveAspectRatio="xMidYMid meet"
+                    />
+                  )}
+                  {el.showLine !== false && (
+                    <line
+                      x1={0}
+                      y1={el.height - 35}
+                      x2={el.width}
+                      y2={el.height - 35}
+                      stroke={el.lineColor || '#94a3b8'}
+                      strokeWidth={1.5}
+                    />
+                  )}
+                  <text
+                    x={el.width / 2}
+                    y={el.height - 18}
+                    textAnchor="middle"
+                    fill="#334155"
+                    fontSize={13}
+                    fontWeight="bold"
+                    fontFamily="Inter, sans-serif"
+                  >
+                    {el.signerName || signatureName || 'Authorized Signatory'}
+                  </text>
+                  {el.signerTitle && (
+                    <text
+                      x={el.width / 2}
+                      y={el.height - 4}
+                      textAnchor="middle"
+                      fill="#64748b"
+                      fontSize={11}
+                      fontFamily="Inter, sans-serif"
+                    >
+                      {el.signerTitle}
+                    </text>
+                  )}
+                </g>
+              );
+            }
+
+            return (
+              <g key={el.id} transform={transform} opacity={opacity}>
+                {contentNode}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  }
 
   // Logo X/Y coordinates
   let logoX = 600 - logoWidth / 2;

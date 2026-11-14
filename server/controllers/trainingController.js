@@ -469,6 +469,15 @@ const saveFullCourse = async (req, res, next) => {
             }
           });
 
+          let quizTimeLimit = 15;
+          if (sec.quiz.timeLimitMinutes !== undefined && sec.quiz.timeLimitMinutes !== null && String(sec.quiz.timeLimitMinutes).trim() !== '') {
+            const rawTime = Number(sec.quiz.timeLimitMinutes);
+            if (!Number.isFinite(rawTime) || isNaN(rawTime) || rawTime < 1 || rawTime > 600) {
+              throw new ApiError(400, 'Quiz duration must be between 1 and 600 minutes.');
+            }
+            quizTimeLimit = Math.floor(rawTime);
+          }
+
           let savedQuizId;
           if (existingQuiz) {
             await prisma.quizQuestion.deleteMany({ where: { quizId: existingQuiz.id } });
@@ -478,7 +487,7 @@ const saveFullCourse = async (req, res, next) => {
                 title: sec.quiz.title || `${sec.title} Quiz`,
                 sectionId: currentSec.id,
                 subSectionId: targetSubSecId,
-                timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+                timeLimitMinutes: quizTimeLimit,
                 passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
                 questions: {
                   create: quizQuestionsData
@@ -493,7 +502,7 @@ const saveFullCourse = async (req, res, next) => {
                 trainingId: training.id,
                 sectionId: currentSec.id,
                 subSectionId: targetSubSecId,
-                timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+                timeLimitMinutes: quizTimeLimit,
                 passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
                 createdBy: instructorId,
                 organizationId: orgId,
@@ -910,7 +919,9 @@ const getTrainingById = async (req, res, next) => {
     }
 
     if (req.user.role === 'Instructor' && String(training.createdBy.id || training.createdBy._id || training.createdBy) !== userId) {
-      throw new ApiError(403, 'You do not have permission to access this training');
+      if (!training.isPublished && training.status !== 'published') {
+        throw new ApiError(403, 'You do not have permission to access this training');
+      }
     }
 
     res.status(200).json(new ApiResponse(200, { training }, 'Training details retrieved successfully'));

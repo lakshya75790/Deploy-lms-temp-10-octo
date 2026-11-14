@@ -1,13 +1,13 @@
 /**
  * Maps internal backend assignmentType enums to human-readable labels
- * - dept_role -> "Group & Role"
+ * - dept_role -> "Group & Subgroup"
  * - specific / individual -> "Individual Learners"
  * - auto / mandatory -> "All Learners (Automatic)"
  */
 export const formatAssignmentType = (type) => {
   if (!type) return 'Unknown Target';
   const lower = String(type).toLowerCase();
-  if (lower === 'dept_role') return 'Group & Role';
+  if (lower === 'dept_role') return 'Group & Subgroup';
   if (lower === 'specific' || lower === 'individual') return 'Individual Learners';
   if (lower === 'auto' || lower === 'mandatory') return 'All Learners (Automatic)';
   return type;
@@ -51,7 +51,17 @@ export const formatDisplayText = (text) => {
     .replace(/\bemployees\b/g, 'learners')
     .replace(/\bemployee\b/g, 'learner')
     .replace(/\bEMPLOYEES\b/g, 'LEARNERS')
-    .replace(/\bEMPLOYEE\b/g, 'LEARNER');
+    .replace(/\bEMPLOYEE\b/g, 'LEARNER')
+    .replace(/\bDepartments\b/g, 'Groups')
+    .replace(/\bDepartment\b/g, 'Group')
+    .replace(/\bdepartments\b/g, 'groups')
+    .replace(/\bdepartment\b/g, 'group')
+    .replace(/\bDEPARTMENTS\b/g, 'GROUPS')
+    .replace(/\bDEPARTMENT\b/g, 'GROUP')
+    .replace(/\bJob Roles\b/g, 'Subgroups')
+    .replace(/\bJob Role\b/g, 'Subgroup')
+    .replace(/\bjob roles\b/g, 'subgroups')
+    .replace(/\bjob role\b/g, 'subgroup');
 };
 
 /**
@@ -97,9 +107,21 @@ export const formatAuditAction = (action) => {
     LOGIN_SUCCESS: 'Successful Login',
     LOGIN_FAILED: 'Failed Login',
     SETUP_ORG: 'Organization Setup',
+    CREATE_GROUP: 'Create Group',
+    UPDATE_GROUP: 'Update Group',
+    DELETE_GROUP: 'Delete Group',
+    DEACTIVATE_GROUP: 'Deactivate Group',
+    ACTIVATE_GROUP: 'Activate Group',
+    GROUP_CREATED: 'Group Created',
+    GROUP_UPDATED: 'Group Updated',
+    GROUP_DELETED: 'Group Deleted',
+    GROUP_DEACTIVATED: 'Group Deactivated',
+    GROUP_ACTIVATED: 'Group Activated',
     CREATE_DEPARTMENT: 'Create Group',
     UPDATE_DEPARTMENT: 'Update Group',
-    DELETE_DEPARTMENT: 'Delete Group'
+    DELETE_DEPARTMENT: 'Delete Group',
+    DEACTIVATE_DEPARTMENT: 'Deactivate Group',
+    ACTIVATE_DEPARTMENT: 'Activate Group'
   };
 
   let result = actionMap[raw];
@@ -131,6 +153,13 @@ export const formatTargetEntity = (targetType) => {
     Training: 'Training Course',
     User: 'User Profile',
     Department: 'Group',
+    Departments: 'Groups',
+    Group: 'Group',
+    Groups: 'Groups',
+    Role: 'Subgroup',
+    Roles: 'Subgroups',
+    Subgroup: 'Subgroup',
+    Subgroups: 'Subgroups',
     Category: 'Training Category',
     Organization: 'Organization',
     Employee: 'Learner',
@@ -145,6 +174,70 @@ export const formatTargetEntity = (targetType) => {
   }
 
   return formatDisplayText(result);
+};
+
+/**
+ * Safely format quiz duration to an integer followed by 'Mins'.
+ * Clamps to 1-600 to prevent scientific notation (e.g., 1e+55) or invalid legacy values.
+ */
+export const formatQuizDuration = (duration, unit = 'Mins') => {
+  if (duration === undefined || duration === null || duration === '') {
+    return `15 ${unit}`;
+  }
+  const num = Number(duration);
+  if (!Number.isFinite(num) || isNaN(num) || num < 1) {
+    return `15 ${unit}`;
+  }
+  const clamped = Math.min(600, Math.max(1, Math.floor(num)));
+  return `${clamped} ${unit}`;
+};
+
+/**
+ * Sanitize quiz duration to a valid integer between 1 and 600.
+ * Safely falls back to 15 for invalid legacy data.
+ */
+export const sanitizeQuizDuration = (duration) => {
+  if (duration === undefined || duration === null || duration === '') return 15;
+  const num = Number(duration);
+  if (!Number.isFinite(num) || isNaN(num) || num < 1) return 15;
+  if (num > 600) return 600;
+  return Math.floor(num);
+};
+
+/**
+ * Validates a quiz duration value against LMS constraints (1 to 600 minutes).
+ * Rejects empty values, non-integers, negative/zero numbers, numbers > 600, and scientific notation.
+ * Returns null if valid, or a descriptive error string if invalid.
+ */
+export const validateQuizDuration = (val) => {
+  if (val === '' || val === null || val === undefined) {
+    return 'Quiz duration is required';
+  }
+  const str = String(val).trim();
+  if (str === '') {
+    return 'Quiz duration is required';
+  }
+  // Check for scientific notation or invalid characters like 'e', 'E'
+  if (/[eE]/.test(str)) {
+    return 'Scientific notation is not allowed. Enter a whole number up to 600.';
+  }
+  if (str.includes('.')) {
+    return 'Quiz duration must be a whole number of minutes (no decimals)';
+  }
+  const num = Number(str);
+  if (!Number.isFinite(num) || isNaN(num)) {
+    return 'Please enter a valid numeric duration';
+  }
+  if (!Number.isInteger(num)) {
+    return 'Quiz duration must be a whole number';
+  }
+  if (num < 1) {
+    return 'Quiz duration must be at least 1 minute';
+  }
+  if (num > 600) {
+    return 'Quiz duration cannot exceed 600 minutes (maximum 10 hours)';
+  }
+  return null;
 };
 
 

@@ -8,6 +8,7 @@ const {
   getAutoRules,
   getMyAssignments,
   getAllAssignments,
+  getLearnerProgress,
   extendDeadline,
   lockTraining,
   unlockTraining
@@ -30,6 +31,7 @@ router.post('/assign', authorizeRoles('Admin'), assignTraining);
 // Employee & All Assignments Routes
 router.get('/my-assignments', authorizeRoles('Employee'), cacheMiddleware(), getMyAssignments);
 router.get('/all', authorizeRoles('Admin', 'Instructor'), cacheMiddleware(), getAllAssignments);
+router.get('/learner-progress', authorizeRoles('Admin', 'Instructor'), getLearnerProgress);
 
 router.put('/:assignmentId/extend-deadline', authorizeRoles('Instructor', 'Admin'), extendDeadline);
 router.put('/:assignmentId/lock', authorizeRoles('Instructor', 'Admin'), lockTraining);

@@ -4,6 +4,7 @@ import { AuthLayout } from '../layouts/AuthLayout';
 import { MainLayout } from '../layouts/MainLayout';
 import { ProtectedRoute } from './ProtectedRoute';
 import { useAuth } from '../context/AuthContext';
+import { FullScreenLoader } from '../components/common/LoadingSpinner';
 
 // Auth Pages
 import { Login } from '../pages/auth/Login';
@@ -25,6 +26,8 @@ import { AuditLogs } from '../pages/admin/AuditLogs';
 import { InstructorDashboard } from '../pages/instructor/InstructorDashboard';
 import { MyTrainings as InstructorTrainings } from '../pages/instructor/MyTrainings';
 import { CourseBuilder } from '../pages/instructor/CourseBuilder';
+import { CourseDetailsView } from '../pages/instructor/CourseDetailsView';
+import { LearnerProgress } from '../pages/instructor/LearnerProgress';
 import { SubmissionsReviewer } from '../pages/instructor/SubmissionsReviewer';
 import { DeadlineManager } from '../pages/instructor/DeadlineManager';
 import { InstructorCertificates } from '../pages/instructor/InstructorCertificates';
@@ -46,7 +49,8 @@ import { NotificationsPage } from '../pages/common/NotificationsPage';
 import { AccountSettingsPage } from '../pages/common/AccountSettingsPage';
 
 const RootRedirect = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'SuperAdmin') return <Navigate to="/super-admin" replace />;
   if (user.role === 'Admin') return <Navigate to="/admin" replace />;
@@ -63,6 +67,7 @@ export const AppRoutes = () => {
       {/* Public Auth Routes */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Navigate to="/register-employee" replace />} />
         <Route path="/register-employee" element={<EmployeeRegister />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
       </Route>
@@ -96,6 +101,9 @@ export const AppRoutes = () => {
         <Route element={<MainLayout />}>
           <Route path="/instructor" element={<InstructorDashboard />} />
           <Route path="/instructor/trainings" element={<InstructorTrainings />} />
+          <Route path="/instructor/learner-progress" element={<LearnerProgress />} />
+          <Route path="/instructor/courses/:id" element={<CourseDetailsView />} />
+          <Route path="/instructor/trainings/:id" element={<CourseDetailsView />} />
           <Route path="/instructor/course-builder/new" element={<CourseBuilder />} />
           <Route path="/instructor/course-builder/:id" element={<CourseBuilder />} />
           <Route path="/instructor/submissions" element={<SubmissionsReviewer />} />

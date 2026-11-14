@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getNotifications as fetchNotificationsApi, markNotificationRead, markAllNotificationsRead } from '../services/api';
+import {
+  getNotifications as fetchNotificationsApi,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification as deleteNotificationApi
+} from '../services/api';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
 
@@ -121,6 +126,23 @@ export const NotificationProvider = ({ children }) => {
     }
   };
 
+  const deleteNotification = async (id) => {
+    if (!id) return;
+    try {
+      await deleteNotificationApi(id);
+      setNotifications(prev => {
+        const target = prev.find(n => (n.id === id || n._id === id));
+        if (target && !target.isRead) {
+          setServerUnreadCount(count => Math.max(0, count - 1));
+        }
+        return prev.filter(n => (n.id !== id && n._id !== id));
+      });
+    } catch (err) {
+      console.error('Failed to delete notification:', err);
+      addToast('error', err.response?.data?.message || 'Failed to delete notification');
+    }
+  };
+
   return (
     <NotificationContext.Provider
       value={{
@@ -131,6 +153,7 @@ export const NotificationProvider = ({ children }) => {
         removeToast,
         markAsRead,
         markAllRead,
+        deleteNotification,
         refreshNotifications: loadNotifications
       }}
     >

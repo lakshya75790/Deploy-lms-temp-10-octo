@@ -13,7 +13,8 @@ import {
   Check,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  Loader2
 } from 'lucide-react';
 
 export const SuperAdminSettings = () => {
@@ -59,6 +60,7 @@ export const SuperAdminSettings = () => {
       : (user?.profilePicture || defaultDicebear);
 
   const handleFileSelect = (e) => {
+    if (savingProfile) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -241,11 +243,6 @@ export const SuperAdminSettings = () => {
                 alt="Avatar Preview"
                 className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-slate-100 shadow-xs bg-slate-50 ring-2 ring-emerald-500/20"
               />
-              {(selectedFile || resetAvatarPending) && (
-                <span className="absolute bottom-0 right-0 px-2 py-0.5 text-[9px] font-bold uppercase bg-amber-500 text-white rounded-full shadow-xs border-2 border-white">
-                  Pending
-                </span>
-              )}
             </div>
 
             <div>
@@ -257,24 +254,36 @@ export const SuperAdminSettings = () => {
             <div className="flex items-center gap-2 pt-1 w-full sm:w-auto justify-center sm:justify-start">
               <button
                 type="button"
+                disabled={savingProfile}
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Upload className="w-3.5 h-3.5 mr-1.5" />
-                Choose Photo
+                {savingProfile ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    Choose Photo
+                  </>
+                )}
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 onChange={handleFileSelect}
+                disabled={savingProfile}
                 className="hidden"
               />
 
               <button
                 type="button"
+                disabled={savingProfile}
                 onClick={handleResetAvatar}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors inline-flex items-center cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Reset avatar to default initial"
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />

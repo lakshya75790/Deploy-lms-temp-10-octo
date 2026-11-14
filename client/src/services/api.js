@@ -16,6 +16,48 @@ const api = axios.create({
   }
 });
 
+// Automatic Bearer Token Interceptor for seamless authentication across normal and Incognito modes
+api.interceptors.request.use(
+  (config) => {
+    try {
+      const token = localStorage.getItem('lms_token');
+      if (token && !config.headers.Authorization) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (e) {
+      // Ignore potential storage access restrictions in restricted environments
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response Interceptor to gracefully handle session expiration and Blob errors
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    // If responseType was 'blob' and backend returned an error JSON, Axios converts the error body into a Blob.
+    // Parse the blob to JSON so error.response.data.message is accessible!
+    if (error.response?.data instanceof Blob && (error.response.data.type?.includes('application/json') || error.response.data.type === 'text/plain')) {
+      try {
+        const text = await error.response.data.text();
+        error.response.data = JSON.parse(text);
+      } catch {}
+    }
+
+    if (error.response?.status === 401) {
+      const url = error.config?.url || '';
+      if (!url.includes('/auth/login') && !url.includes('/auth/me')) {
+        try {
+          localStorage.removeItem('lms_token');
+          localStorage.removeItem('lms_user');
+        } catch {}
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // In-flight GET request deduplicator and short-lived client-side response cache
 const pendingGetRequests = new Map();
 const responseCache = new Map();
@@ -49,7 +91,8 @@ api.delete = function (url, config) {
 };
 
 api.get = function (url, config = {}) {
-  const bypassCache = config && config.skipCache;
+  const isBinary = Boolean(config && (config.responseType === 'blob' || config.responseType === 'arraybuffer'));
+  const bypassCache = (config && config.skipCache) || isBinary;
   const key = url + (config && config.params ? JSON.stringify(config.params) : '');
 
   const now = Date.now();
@@ -66,10 +109,15 @@ api.get = function (url, config = {}) {
   }
 
   if (pendingGetRequests.has(key)) {
-    return pendingGetRequests.get(key).then(res => ({
-      ...res,
-      data: JSON.parse(JSON.stringify(res.data))
-    }));
+    return pendingGetRequests.get(key).then(res => {
+      if (isBinary) {
+        return res;
+      }
+      return {
+        ...res,
+        data: JSON.parse(JSON.stringify(res.data))
+      };
+    });
   }
 
   const requestPromise = originalGet(url, config).then(res => {
@@ -93,7 +141,7 @@ export const setupOrg = (data) => api.post('/auth/setup-org', data);
 export const registerEmployee = (data) => api.post('/auth/register-employee', data);
 export const loginUser = (credentials) => api.post('/auth/login', credentials);
 export const logoutUser = () => api.post('/auth/logout');
-export const getMe = () => api.get('/auth/me');
+export const getMe = () => api.get('/auth/me', { skipCache: true });
 export const updateProfile = (data) => api.put('/auth/profile', data);
 export const changePassword = (data) => api.put('/auth/change-password', data);
 export const updateProfilePicture = (formData) => api.put('/auth/profile-picture', formData, {
@@ -163,6 +211,37 @@ export const submitAssignment = (id, data) => api.post(`/assignments/${id}/submi
 export const getAssignmentSubmissions = (id) => api.get(id ? `/assignments/${id}/submissions` : '/assignments/instructor-submissions');
 export const getInstructorSubmissions = (trainingId) => api.get(`/assignments/instructor-submissions${trainingId && trainingId !== 'all' ? `?trainingId=${trainingId}` : ''}`);
 export const reviewSubmission = (submissionId, data) => api.put(`/assignments/submissions/${submissionId}/review`, data);
+export const downloadAssignmentSubmission = (submissionId) => api.get(`/assignments/submissions/${submissionId}/download`, { responseType: 'blob', skipCache: true });
+export const getSubmissionPdfViewUrl = (submissionId) => {
+  const base = getBaseUrl();
+  let token = '';
+  try {
+    token = localStorage.getItem('lms_token') || '';
+  } catch {}
+  return `${base}/assignments/submissions/${submissionId}/view-pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+};
+export const getSubmissionDownloadUrl = (submissionId) => {
+  const base = getBaseUrl();
+  let token = '';
+  try {
+    token = localStorage.getItem('lms_token') || '';
+  } catch {}
+  return `${base}/assignments/submissions/${submissionId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+};
+export const getMediaPdfViewUrl = (fileUrl) => {
+  const base = getBaseUrl();
+  let token = '';
+  try {
+    token = localStorage.getItem('lms_token') || '';
+  } catch {}
+  return `${base}/media/view-pdf?url=${encodeURIComponent(fileUrl)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+};
+export const fetchMediaPdfBlob = (fileUrl) => {
+  return api.get(`/media/view-pdf?url=${encodeURIComponent(fileUrl)}`, { responseType: 'blob', skipCache: true });
+};
+export const fetchSubmissionPdfBlob = (submissionId) => {
+  return api.get(`/assignments/submissions/${submissionId}/view-pdf`, { responseType: 'blob', skipCache: true });
+};
 export const getMyFeedback = () => api.get('/assignments/my-feedback');
 
 // Training Assignment Engine APIs
@@ -173,6 +252,7 @@ export const deactivateAutoRule = (id) => api.put(`/assignments-engine/auto-rule
 export const reactivateAutoRule = (id) => api.put(`/assignments-engine/auto-rules/${id}/reactivate`);
 export const getMyAssignments = () => api.get('/assignments-engine/my-assignments');
 export const getAllAssignments = () => api.get('/assignments-engine/all');
+export const getLearnerProgress = (params) => api.get('/assignments-engine/learner-progress', { params });
 export const extendDeadline = (assignmentId, data) => api.put(`/assignments-engine/${assignmentId}/extend-deadline`, data);
 export const lockTraining = (assignmentId, data) => api.put(`/assignments-engine/${assignmentId}/lock`, data);
 export const unlockTraining = (assignmentId) => api.put(`/assignments-engine/${assignmentId}/unlock`);
@@ -185,6 +265,7 @@ export const getProgressByAssignment = (trainingAssignmentId) => api.get(`/progr
 export const getNotifications = () => api.get('/notifications');
 export const markNotificationRead = (id) => api.put(`/notifications/${id}/read`);
 export const markAllNotificationsRead = () => api.put('/notifications/read-all');
+export const deleteNotification = (id) => api.delete(`/notifications/${id}`);
 
 // Reports & Analytics APIs
 export const getFullOrgReport = () => api.get('/reports/full-org-report');

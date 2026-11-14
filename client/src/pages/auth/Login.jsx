@@ -1,13 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { Mail, Lock, ArrowRight, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 
 export const Login = () => {
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const { addToast } = useNotification();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      if (user.role === 'SuperAdmin') navigate('/super-admin', { replace: true });
+      else if (user.role === 'Admin') navigate('/admin', { replace: true });
+      else if (user.role === 'Instructor') navigate('/instructor', { replace: true });
+      else navigate('/employee', { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

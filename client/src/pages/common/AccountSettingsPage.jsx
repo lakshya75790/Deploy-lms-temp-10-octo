@@ -14,10 +14,11 @@ import {
   EyeOff,
   ShieldCheck,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 import { validateImageFile } from '../../utils/fileValidation';
-import { validatePassword, evaluatePasswordStrength } from '../../utils/userValidation';
+import { validateName, validatePassword, evaluatePasswordStrength } from '../../utils/userValidation';
 
 export const AccountSettingsPage = () => {
   const { user, setUser } = useAuth();
@@ -32,6 +33,9 @@ export const AccountSettingsPage = () => {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [resetAvatarPending, setResetAvatarPending] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const isImageUploading = uploadingPhoto || savingProfile;
 
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -77,6 +81,8 @@ export const AccountSettingsPage = () => {
 
   // Choose Photo Handler
   const handleFileSelect = (e) => {
+    if (isImageUploading) return;
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -98,8 +104,32 @@ export const AccountSettingsPage = () => {
     e.target.value = null;
   };
 
+  // Direct Photo Upload Handler
+  const handleUploadPhoto = async () => {
+    if (!selectedFile || isImageUploading) return;
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      const picRes = await updateProfilePicture(formData);
+      if (picRes?.data?.data?.user) {
+        setUser(picRes.data.data.user);
+      }
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setResetAvatarPending(false);
+      addToast('success', 'Profile picture updated successfully!');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Failed to upload profile picture');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   // Reset Avatar Handler (clears un-saved file or queues reset to initial avatar)
   const handleResetAvatar = () => {
+    if (isImageUploading) return;
+
     // If a new photo is currently selected but not saved yet: revert selection
     if (selectedFile || previewUrl) {
       if (previewUrl && previewUrl.startsWith('blob:')) {
@@ -132,6 +162,7 @@ export const AccountSettingsPage = () => {
   // Save Profile Changes Handler
   const handleSaveProfile = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
+    if (isImageUploading) return;
 
     const isNameChanged = name.trim() !== (user?.name || '');
     const hasPhotoToUpload = !!selectedFile;
@@ -148,6 +179,9 @@ export const AccountSettingsPage = () => {
     }
 
     setSavingProfile(true);
+    if (hasPhotoToUpload) {
+      setUploadingPhoto(true);
+    }
     let latestUser = user;
 
     try {
@@ -173,6 +207,7 @@ export const AccountSettingsPage = () => {
         if (nameErr) {
           addToast('error', nameErr);
           setSavingProfile(false);
+          setUploadingPhoto(false);
           return;
         }
         const profileData = { name: name.trim() };
@@ -190,6 +225,7 @@ export const AccountSettingsPage = () => {
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to update profile details');
     } finally {
+      setUploadingPhoto(false);
       setSavingProfile(false);
     }
   };
@@ -309,11 +345,6 @@ export const AccountSettingsPage = () => {
                 alt={user?.name || 'Profile Avatar'}
                 className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-slate-100 shadow-xs bg-slate-50 ring-2 ring-emerald-500/20"
               />
-              {(selectedFile || resetAvatarPending) && (
-                <span className="absolute bottom-0 right-0 px-2 py-0.5 text-[9px] font-bold uppercase bg-amber-500 text-white rounded-full shadow-xs border-2 border-white">
-                  Pending
-                </span>
-              )}
             </div>
 
             <div>
@@ -324,28 +355,61 @@ export const AccountSettingsPage = () => {
               </p>
             </div>
 
-            {/* Choose Photo & Reset Buttons */}
-            <div className="flex items-center gap-2 pt-1 w-full sm:w-auto justify-center sm:justify-start">
+            {/* Choose Photo, Upload & Reset Buttons */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 w-full sm:w-auto justify-center sm:justify-start">
               <button
                 type="button"
+                disabled={isImageUploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Upload className="w-3.5 h-3.5 mr-1.5" />
-                Choose Photo
+                {isImageUploading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    Choose Photo
+                  </>
+                )}
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 onChange={handleFileSelect}
+                disabled={isImageUploading}
                 className="hidden"
               />
 
+              {selectedFile && (
+                <button
+                  type="button"
+                  disabled={isImageUploading}
+                  onClick={handleUploadPhoto}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-colors inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isImageUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1.5" />
+                      Upload Photo
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
                 type="button"
+                disabled={isImageUploading}
                 onClick={handleResetAvatar}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors inline-flex items-center cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Reset avatar to default initial"
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
@@ -400,11 +464,15 @@ export const AccountSettingsPage = () => {
           <button
             type="button"
             onClick={handleSaveProfile}
-            disabled={savingProfile}
-            className="px-5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 inline-flex items-center"
+            disabled={isImageUploading}
+            className="px-5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center"
           >
-            <Check className="w-4 h-4 mr-2" />
-            {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+            {isImageUploading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Check className="w-4 h-4 mr-2" />
+            )}
+            {isImageUploading ? 'Saving Changes...' : 'Save Profile Changes'}
           </button>
         </div>
       </div>

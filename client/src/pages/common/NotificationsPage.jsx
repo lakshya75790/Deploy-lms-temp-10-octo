@@ -17,13 +17,14 @@ import {
   Unlock,
   Sparkles,
   AlertCircle,
-  ArrowRight
+  ArrowRight,
+  X
 } from 'lucide-react';
 
 export const NotificationsPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { notifications, unreadCount, markAsRead, markAllRead } = useNotification();
+  const { notifications, unreadCount, markAsRead, markAllRead, deleteNotification } = useNotification();
   const [filter, setFilter] = useState('all'); // 'all' | 'unread'
 
   const filteredNotifications = filter === 'unread'
@@ -152,21 +153,19 @@ export const NotificationsPage = () => {
       <div className="flex items-center space-x-2 sm:space-x-3 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
         <button
           onClick={() => setFilter('all')}
-          className={`px-3 xs:px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-            filter === 'all'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
+          className={`px-3 xs:px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${filter === 'all'
+            ? 'bg-emerald-600 text-white shadow-xs'
+            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
         >
           All Notifications ({notifications.length})
         </button>
         <button
           onClick={() => setFilter('unread')}
-          className={`px-3 xs:px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-            filter === 'unread'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
+          className={`px-3 xs:px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${filter === 'unread'
+            ? 'bg-emerald-600 text-white shadow-xs'
+            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
         >
           Unread Only ({unreadCount})
         </button>
@@ -187,18 +186,31 @@ export const NotificationsPage = () => {
             <div
               key={n.id || n._id}
               onClick={() => handleNotificationClick(n)}
-              className={`group relative p-3.5 xs:p-5 rounded-2xl border transition-all cursor-pointer flex items-start space-x-3 xs:space-x-4 hover:shadow-md ${
-                !n.isRead
-                  ? 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/40 shadow-xs'
-                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'
-              }`}
+              className={`group relative p-4 xs:p-5 pr-10 xs:pr-12 rounded-2xl border transition-all cursor-pointer flex items-start space-x-3 xs:space-x-4 hover:shadow-md ${!n.isRead
+                ? 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/40 shadow-xs'
+                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'
+                }`}
             >
+              {/* Close/Delete (X) icon positioned in top-right corner */}
+              <button
+                type="button"
+                title="Delete Notification"
+                aria-label="Delete Notification"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteNotification(n.id || n._id);
+                }}
+                className="absolute top-3.5 right-3.5 p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors z-10 cursor-pointer flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
               <div className="p-2 xs:p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex-shrink-0 mt-0.5">
                 {getNotifIcon(n.type)}
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center justify-between gap-2 mb-1 pr-2">
                   <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{formatDisplayText(n.title)}</h4>
                   <div className="flex items-center space-x-2 flex-shrink-0">
                     {!n.isRead && (

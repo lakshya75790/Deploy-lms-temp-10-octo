@@ -1,5 +1,6 @@
 const { prisma, withId } = require('../config/prismaClient');
 const { updateOverallProgress } = require('../services/progressService');
+const { fetchCloudinaryAssetBuffer } = require('../config/cloudinary');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 
@@ -246,10 +247,14 @@ const submitAssignment = async (req, res, next) => {
 
     if (submissionType === 'github') {
       if (!githubUrl || !githubUrl.trim()) {
-        throw new ApiError(400, 'GitHub Repository URL is required');
+        throw new ApiError(400, 'Project URL or link is required');
       }
-      if (!githubUrl.includes('github.com')) {
-        throw new ApiError(400, 'Please enter a valid GitHub Repository URL (e.g., https://github.com/user/repository)');
+      const trimmed = githubUrl.trim();
+      const hasValidProtocol = trimmed.startsWith('http://') || trimmed.startsWith('https://');
+      try {
+        new URL(hasValidProtocol ? trimmed : `https://${trimmed}`);
+      } catch (err) {
+        throw new ApiError(400, 'Please enter a valid project URL or sharing link (e.g., GitHub, GitLab, Google Drive, etc.)');
       }
     }
 
@@ -284,13 +289,33 @@ const submitAssignment = async (req, res, next) => {
     });
 
     if (submission) {
+      // Check whether actual changes were made
+      const typeMatches = submission.submissionType === submissionType;
+      const normalizeUrl = (u) => {
+        if (!u) return '';
+        let str = u.trim().toLowerCase().replace(/\/+$/, '');
+        str = str.replace(/^https?:\/\//, '');
+        return str;
+      };
+      const githubMatches = normalizeUrl(submission.githubUrl) === normalizeUrl(githubUrl);
+      const fileMatches = (submission.fileUrl || '').trim() === (fileUrl || '').trim();
+
+      const noChanges = typeMatches && (
+        (submissionType === 'github' && githubMatches) ||
+        (submissionType === 'file' && fileMatches)
+      );
+
+      if (noChanges) {
+        throw new ApiError(400, 'No changes detected. Please make some changes before updating your submission.');
+      }
+
       submission = await prisma.assignmentSubmission.update({
         where: { id: submission.id },
         data: {
           submissionType,
-          githubUrl: githubUrl ? githubUrl.trim() : '',
-          fileUrl: fileUrl ? fileUrl.trim() : '',
-          filePublicId: filePublicId || '',
+          githubUrl: submissionType === 'github' && githubUrl ? githubUrl.trim() : '',
+          fileUrl: submissionType === 'file' && fileUrl ? fileUrl.trim() : '',
+          filePublicId: submissionType === 'file' ? (filePublicId || '') : '',
           status: 'submitted',
           submittedAt: new Date()
         }
@@ -685,6 +710,180 @@ const getEmployeeFeedback = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    View Submitted PDF inline in browser securely without exposing Cloudinary URL
+ * @route   GET /api/assignments/submissions/:submissionId/view-pdf
+ * @access  Private (Instructor, Admin, Employee owner)
+ */
+const viewSubmissionPdf = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const userId = String(req.user.id || req.user._id);
+    const { submissionId } = req.params;
+
+    const submission = await prisma.assignmentSubmission.findFirst({
+      where: { id: String(submissionId) },
+      include: {
+        assignment: {
+          include: { training: true }
+        },
+        employee: {
+          select: { id: true, name: true, email: true, organizationId: true }
+        }
+      }
+    });
+
+    if (!submission) {
+      throw new ApiError(404, 'Assignment submission not found');
+    }
+
+    // Role & authorization check: Employee owner, Instructor, or Admin
+    const isOwner = String(submission.employeeId) === userId;
+    const isInstructor = req.user.role === 'Instructor';
+    const isAdmin = req.user.role === 'Admin' || req.user.role === 'SuperAdmin';
+
+    if (!isOwner && !isInstructor && !isAdmin) {
+      throw new ApiError(403, 'Not authorized to view this assignment submission');
+    }
+
+    if (!submission.fileUrl || !submission.fileUrl.trim()) {
+      throw new ApiError(404, 'This assignment submission does not have an uploaded PDF file');
+    }
+
+    // Derive a clean, valid filename ending in .pdf
+    let filename = 'Assignment_Submission.pdf';
+    try {
+      const urlParts = submission.fileUrl.split('/');
+      let raw = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
+      if (raw && raw.trim() && raw.length > 3) {
+        const cleaned = raw.replace(/_\d{10,14}(\.pdf)$/i, '$1');
+        filename = cleaned.toLowerCase().endsWith('.pdf') ? cleaned : `${cleaned}.pdf`;
+      } else {
+        const emp = (submission.employee?.name || 'Learner').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const ass = (submission.assignment?.title || 'Assignment').replace(/[^a-zA-Z0-9_-]/g, '_');
+        filename = `${emp}_${ass}.pdf`;
+      }
+    } catch {
+      filename = 'Assignment_Submission.pdf';
+    }
+
+    // Securely retrieve original PDF from Cloudinary / storage using authenticated signed API
+    const asset = await fetchCloudinaryAssetBuffer(submission.filePublicId || submission.fileUrl, {
+      resourceType: 'raw',
+      submissionId: submission.id
+    });
+    const buffer = asset.buffer;
+
+    const safeAsciiFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const totalLength = buffer.length;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Content-Disposition', `inline; filename="${safeAsciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && rangeHeader.startsWith('bytes=')) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10) || 0;
+      const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+      if (start >= totalLength || end >= totalLength || start > end) {
+        res.setHeader('Content-Range', `bytes */${totalLength}`);
+        return res.status(416).send('Requested Range Not Satisfiable');
+      }
+
+      const chunk = buffer.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalLength}`);
+      res.setHeader('Content-Length', chunk.length);
+      return res.send(chunk);
+    }
+
+    res.setHeader('Content-Length', totalLength);
+    return res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Download Original Assignment Submission File
+ * @route   GET /api/assignments/submissions/:submissionId/download
+ * @access  Private (Instructor, Admin, Employee)
+ */
+const downloadSubmissionFile = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const userId = String(req.user.id || req.user._id);
+    const { submissionId } = req.params;
+
+    const submission = await prisma.assignmentSubmission.findFirst({
+      where: { id: String(submissionId) },
+      include: {
+        assignment: {
+          include: { training: true }
+        },
+        employee: {
+          select: { id: true, name: true, email: true, organizationId: true }
+        }
+      }
+    });
+
+    if (!submission) {
+      throw new ApiError(404, 'Assignment submission not found');
+    }
+
+    // Role & authorization check: Employee owner, Instructor, or Admin
+    const isOwner = String(submission.employeeId) === userId;
+    const isInstructor = req.user.role === 'Instructor';
+    const isAdmin = req.user.role === 'Admin' || req.user.role === 'SuperAdmin';
+
+    if (!isOwner && !isInstructor && !isAdmin) {
+      throw new ApiError(403, 'Not authorized to download this assignment submission');
+    }
+
+    if (!submission.fileUrl || !submission.fileUrl.trim()) {
+      throw new ApiError(400, 'This assignment submission does not have an uploaded file');
+    }
+
+    // Derive a clean, valid filename ending in .pdf
+    let filename = 'Assignment_Submission.pdf';
+    try {
+      const urlParts = submission.fileUrl.split('/');
+      let raw = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
+      if (raw && raw.trim() && raw.length > 3) {
+        const cleaned = raw.replace(/_\d{10,14}(\.pdf)$/i, '$1');
+        filename = cleaned.toLowerCase().endsWith('.pdf') ? cleaned : `${cleaned}.pdf`;
+      } else {
+        const emp = (submission.employee?.name || 'Learner').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const ass = (submission.assignment?.title || 'Assignment').replace(/[^a-zA-Z0-9_-]/g, '_');
+        filename = `${emp}_${ass}.pdf`;
+      }
+    } catch {
+      filename = 'Assignment_Submission.pdf';
+    }
+
+    // Fetch the raw original file bytes from Cloudinary/storage using authenticated signed API
+    const asset = await fetchCloudinaryAssetBuffer(submission.filePublicId || submission.fileUrl, {
+      resourceType: 'raw',
+      submissionId: submission.id
+    });
+    const buffer = asset.buffer;
+
+    // Force PDF download headers with original content and filename
+    const safeAsciiFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAsciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, no-cache');
+
+    return res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createAssignment,
   getAssignmentById,
@@ -693,5 +892,7 @@ module.exports = {
   getAssignmentSubmissions,
   getInstructorSubmissions,
   getEmployeeFeedback,
-  reviewSubmission
+  reviewSubmission,
+  viewSubmissionPdf,
+  downloadSubmissionFile
 };

@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getTrainings, updateTraining, deleteTraining } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
-import { BookOpen, Plus, Trash2, Layers, CheckCircle2, FileCode, RefreshCw, Search, X } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Layers, CheckCircle2, FileCode, RefreshCw, Search, X, Eye } from 'lucide-react';
 
 export const MyTrainings = () => {
   const navigate = useNavigate();
@@ -17,6 +18,8 @@ export const MyTrainings = () => {
   const [courseToDelete, setCourseToDelete] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'published' | 'draft'
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   const fetchData = async () => {
     try {
@@ -90,6 +93,15 @@ export const MyTrainings = () => {
     const sectionMatch = Array.isArray(t.sections) && t.sections.some(s => (s.title || '').toLowerCase().includes(term));
     return titleMatch || descMatch || catMatch || sectionMatch;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, trainings.length]);
+
+  const paginatedTrainings = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredTrainings.slice(start, start + pageSize);
+  }, [filteredTrainings, currentPage, pageSize]);
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
@@ -209,13 +221,18 @@ export const MyTrainings = () => {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTrainings.map((t) => (
-            <div key={t._id} className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between transition-all hover:shadow-md">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginatedTrainings.map((t) => (
+              <div key={t._id} className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between transition-all hover:shadow-md">
               <div>
-                <div className="relative h-44 bg-slate-900">
+                <div
+                  onClick={() => navigate(`/instructor/courses/${t._id}`)}
+                  className="relative h-44 bg-slate-900 cursor-pointer group overflow-hidden"
+                  title="Click to view course details"
+                >
                   {t.thumbnailUrl ? (
-                    <img src={t.thumbnailUrl} alt={t.title} className="w-full h-full object-cover" />
+                    <img src={t.thumbnailUrl} alt={t.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-slate-900 text-emerald-300 font-bold text-base p-4 text-center">
                       {t.title}
@@ -240,7 +257,13 @@ export const MyTrainings = () => {
                     <span className="text-[11px] font-semibold text-emerald-700">
                       {t.categoryId?.name || 'General Category'}
                     </span>
-                    <h3 className="font-bold text-slate-900 text-base line-clamp-1">{t.title}</h3>
+                    <h3
+                      onClick={() => navigate(`/instructor/courses/${t._id}`)}
+                      className="font-bold text-slate-900 text-base line-clamp-1 hover:text-emerald-700 cursor-pointer transition-colors"
+                      title={t.title}
+                    >
+                      {t.title}
+                    </h3>
                   </div>
 
                   <p className="text-xs text-slate-500 line-clamp-2">{t.description || 'No description provided.'}</p>
@@ -253,14 +276,25 @@ export const MyTrainings = () => {
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                <button
-                  onClick={() => navigate(`/instructor/course-builder/${t._id}`)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors inline-flex items-center cursor-pointer"
-                >
-                  <FileCode className="w-3.5 h-3.5 mr-1" />
-                  Edit & Course Builder
-                </button>
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => navigate(`/instructor/courses/${t._id}`)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 shadow-2xs transition-all inline-flex items-center cursor-pointer"
+                    title="View complete course details in read-only mode"
+                  >
+                    <Eye className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    View
+                  </button>
+
+                  <button
+                    onClick={() => navigate(`/instructor/course-builder/${t._id}`)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors inline-flex items-center cursor-pointer"
+                  >
+                    <FileCode className="w-3.5 h-3.5 mr-1" />
+                    Edit
+                  </button>
+                </div>
 
                 <div className="flex items-center space-x-1">
                   <button
@@ -289,6 +323,16 @@ export const MyTrainings = () => {
               </div>
             </div>
           ))}
+          </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredTrainings.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="courses"
+            className="rounded-2xl border border-slate-200 bg-white"
+          />
         </div>
       )}
 

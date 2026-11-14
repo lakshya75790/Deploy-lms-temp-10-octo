@@ -20,6 +20,7 @@ import {
   UserCog,
   Award,
   LogOut,
+  TrendingUp,
   X
 } from 'lucide-react';
 
@@ -65,7 +66,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
 
   const adminLinks = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/admin/departments', label: 'Groups & Roles', icon: Building2 },
+    { to: '/admin/departments', label: 'Groups & Subgroups', icon: Building2 },
     { to: '/admin/users', label: 'Users Directory & Status', icon: Users },
     { to: '/admin/categories', label: 'Course Categories', icon: FolderKanban },
     { to: '/admin/assign', label: 'Training Assignment Engine', icon: UserPlus },
@@ -79,6 +80,7 @@ export const Sidebar = ({ mobileOpen = false, onCloseMobile = () => {} }) => {
   const instructorLinks = [
     { to: '/instructor', label: 'Dashboard', icon: LayoutDashboard, end: true },
     { to: '/instructor/trainings', label: 'My Courses & Syllabus', icon: BookOpen },
+    { to: '/instructor/learner-progress', label: 'Learner Progress', icon: TrendingUp },
     { to: '/instructor/submissions', label: 'Assignment Submissions', icon: FileCheck2 },
     { to: '/instructor/certificates', label: 'Course Certificates', icon: Award },
     { to: '/instructor/deadlines', label: 'Overdue & Lock Controls', icon: Clock },

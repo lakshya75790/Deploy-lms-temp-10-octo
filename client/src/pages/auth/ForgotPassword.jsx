@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { requestForgotPasswordOTP, verifyForgotPasswordOTP, resetPasswordWithOTP } from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
-import { Mail, KeyRound, Lock, ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { Mail, KeyRound, Lock, ArrowLeft, ArrowRight, CheckCircle2, Circle, ShieldCheck, Eye, EyeOff, RotateCcw, AlertCircle, Check } from 'lucide-react';
 
 export const ForgotPassword = () => {
   const { addToast } = useNotification();
@@ -15,7 +15,50 @@ export const ForgotPassword = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  const passwordInputRef = useRef(null);
+
+  const passwordCriteria = useMemo(() => [
+    {
+      id: 'length',
+      label: 'At least 8 characters',
+      met: newPassword.length >= 8 && newPassword.length <= 100
+    },
+    {
+      id: 'uppercase',
+      label: 'One uppercase letter',
+      met: /[A-Z]/.test(newPassword)
+    },
+    {
+      id: 'lowercase',
+      label: 'One lowercase letter',
+      met: /[a-z]/.test(newPassword)
+    },
+    {
+      id: 'number',
+      label: 'One numeric digit',
+      met: /[0-9]/.test(newPassword)
+    },
+    {
+      id: 'special',
+      label: 'One special symbol',
+      met: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?~`]/.test(newPassword) || /[^A-Za-z0-9]/.test(newPassword)
+    }
+  ], [newPassword]);
+
+  const allRequirementsMet = useMemo(
+    () => passwordCriteria.every((criterion) => criterion.met),
+    [passwordCriteria]
+  );
+
+  const passwordsMatch = useMemo(
+    () => Boolean(newPassword && confirmPassword && newPassword === confirmPassword),
+    [newPassword, confirmPassword]
+  );
+
+  const canSubmitReset = allRequirementsMet && passwordsMatch && !loading;
 
   // Resend cooldown timer (60s)
   const [cooldown, setCooldown] = useState(0);
@@ -40,11 +83,12 @@ export const ForgotPassword = () => {
     setLoading(true);
     try {
       const res = await requestForgotPasswordOTP({ email: cleanEmail });
-      addToast('info', res.data?.message || 'If an account exists, a 6-digit OTP has been sent to your email.');
+      addToast('success', res.data?.message || 'A 6-digit OTP has been sent to your registered email address.');
       setStep(2);
       setCooldown(60);
     } catch (err) {
-      addToast('error', err.response?.data?.message || 'Failed to request OTP');
+      const errorMessage = err.response?.data?.message || 'Failed to request OTP';
+      addToast('error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -89,8 +133,10 @@ export const ForgotPassword = () => {
   // Step 3: Reset Password
   const handleResetPassword = async (e) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
-      addToast('error', 'Password must be at least 6 characters long');
+    if (!allRequirementsMet) {
+      addToast('error', 'Password does not meet all requirements');
+      setIsPasswordFocused(true);
+      passwordInputRef.current?.focus();
       return;
     }
 
@@ -262,44 +308,116 @@ export const ForgotPassword = () => {
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
+                ref={passwordInputRef}
                 type={showPassword ? 'text' : 'password'}
                 value={newPassword}
+                maxLength={100}
                 onChange={(e) => setNewPassword(e.target.value)}
+                onFocus={() => setIsPasswordFocused(true)}
+                onBlur={() => setIsPasswordFocused(false)}
                 required
-                minLength={6}
-                placeholder="At least 6 characters"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                placeholder="At least 8 characters"
+                className={`w-full pl-10 pr-10 py-2.5 rounded-xl border bg-white text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
+                  newPassword && !allRequirementsMet
+                    ? 'border-amber-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20'
+                    : allRequirementsMet
+                    ? 'border-emerald-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
               <button
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+
+            {/* Real-time Password Validation Requirements Card (shows on focus) */}
+            {isPasswordFocused && (
+              <div
+                role="region"
+                aria-label="Password validation requirements"
+                className="mt-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 shadow-xs space-y-1.5 animate-fade-in"
+              >
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
+                  <span>Password Requirements</span>
+                  <span className="text-[10px] font-normal text-slate-500">
+                    {passwordCriteria.filter((c) => c.met).length} of 5 met
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                  {passwordCriteria.map((criterion) => (
+                    <div
+                      key={criterion.id}
+                      className={`flex items-center gap-1.5 text-[11px] leading-tight transition-colors duration-150 ${
+                        criterion.met ? 'text-emerald-600 font-medium' : 'text-slate-500'
+                      }`}
+                    >
+                      {criterion.met ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                      ) : (
+                        <Circle className="w-3 h-3 text-slate-300 shrink-0" />
+                      )}
+                      <span className="truncate">{criterion.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Confirm New Password</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700">Confirm New Password</label>
+              {passwordsMatch && (
+                <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-0.5">
+                  <Check className="w-3 h-3" /> Passwords match
+                </span>
+              )}
+            </div>
             <div className="relative">
               <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
-                type={showPassword ? 'text' : 'password'}
+                type={showConfirmPassword ? 'text' : 'password'}
                 value={confirmPassword}
+                maxLength={100}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                minLength={6}
                 placeholder="Re-enter new password"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className={`w-full pl-10 pr-10 py-2.5 rounded-xl border bg-white text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
+                  confirmPassword && !passwordsMatch
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : passwordsMatch
+                    ? 'border-emerald-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+              >
+                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
+            {confirmPassword && !passwordsMatch && (
+              <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3 h-3 shrink-0" />
+                <span>Passwords do not match</span>
+              </p>
+            )}
           </div>
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3 px-4 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 mt-2"
+            disabled={!canSubmitReset}
+            className="w-full py-3 px-4 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
           >
             {loading ? (
               <span>Resetting Password...</span>

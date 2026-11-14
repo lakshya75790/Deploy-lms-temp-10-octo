@@ -210,7 +210,7 @@ const assignTraining = async (req, res, next) => {
  */
 const createAutoRule = async (req, res, next) => {
   try {
-    const { trainingId, customDeadlineDays } = req.body;
+    const { trainingId, customDeadlineDays, months, days } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
     const userId = String(req.user.id || req.user._id);
 
@@ -218,11 +218,39 @@ const createAutoRule = async (req, res, next) => {
       throw new ApiError(400, 'trainingId is required for auto-assignment');
     }
 
+    // Determine final deadline window in days
+    let finalDeadlineDays;
+    if (months !== undefined || days !== undefined) {
+      const parsedMonths = Number(months);
+      const parsedDays = Number(days);
+
+      if (
+        (months !== undefined && (!Number.isInteger(parsedMonths) || parsedMonths < 0 || parsedMonths > 12)) ||
+        (days !== undefined && (!Number.isInteger(parsedDays) || parsedDays < 0 || parsedDays > 31))
+      ) {
+        throw new ApiError(400, 'Months must be an integer between 0 and 12, and Days must be an integer between 0 and 31');
+      }
+
+      finalDeadlineDays = (parsedMonths || 0) * 30 + (parsedDays || 0);
+    } else if (customDeadlineDays !== undefined) {
+      const parsedDays = Number(customDeadlineDays);
+      if (!Number.isInteger(parsedDays) || parsedDays < 1) {
+        throw new ApiError(400, 'Completion deadline window must be a positive whole number of days');
+      }
+      finalDeadlineDays = parsedDays;
+    } else {
+      finalDeadlineDays = 30;
+    }
+
+    if (finalDeadlineDays < 1 || finalDeadlineDays > 365) {
+      throw new ApiError(400, 'Completion deadline window must be between 1 day and 365 days (12 months)');
+    }
+
     const { rule, assignedCount, totalEmployees } = await createAutoAssignmentRule(
       userId,
       orgId,
       trainingId,
-      customDeadlineDays || 30
+      finalDeadlineDays
     );
 
     logAuditAction(
@@ -237,7 +265,7 @@ const createAutoRule = async (req, res, next) => {
       new ApiResponse(
         201,
         { rule, assignedCount, totalEmployees },
-        `Auto-assignment rule configured. Assigned to ${assignedCount} existing employees.`
+        'Automatic training assignment enabled successfully for all existing and future learners!'
       )
     );
   } catch (error) {
@@ -472,6 +500,286 @@ const getAllAssignments = async (req, res, next) => {
       });
 
     res.status(200).json(new ApiResponse(200, { assignments }, 'All assignments retrieved successfully'));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get Learner Progress across Instructor Courses (or Course-Specific)
+ * @route   GET /api/assignments-engine/learner-progress
+ * @access  Private (Instructor, Admin)
+ */
+const getLearnerProgress = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const userId = String(req.user.id || req.user._id);
+    const { trainingId } = req.query;
+
+    const whereClause = {
+      organizationId: orgId,
+      employee: {
+        status: { in: ['active', 'ACTIVE'] }
+      }
+    };
+
+    if (req.user.role === 'Instructor') {
+      const ownedTrainings = await prisma.training.findMany({
+        where: {
+          createdBy: userId,
+          organizationId: orgId,
+          status: { notIn: ['archived', 'deleted'] }
+        },
+        select: { id: true, title: true }
+      });
+      const ownedTrainingIds = ownedTrainings.map(t => t.id);
+
+      if (trainingId && trainingId !== 'all') {
+        if (!ownedTrainingIds.includes(trainingId)) {
+          throw new ApiError(403, 'Not authorized to view learner progress for this course');
+        }
+        whereClause.trainingId = trainingId;
+      } else {
+        whereClause.trainingId = { in: ownedTrainingIds };
+      }
+    } else {
+      if (trainingId && trainingId !== 'all') {
+        whereClause.trainingId = trainingId;
+      }
+    }
+
+    const assignmentsList = await prisma.trainingAssignment.findMany({
+      where: whereClause,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profilePicture: true,
+            jobRole: true,
+            status: true
+          }
+        },
+        training: {
+          select: {
+            id: true,
+            title: true,
+            thumbnailUrl: true,
+            sections: {
+              select: {
+                id: true,
+                title: true,
+                subSections: {
+                  select: { id: true, title: true }
+                }
+              }
+            },
+            quizzes: {
+              select: { id: true, title: true, passingScorePercent: true }
+            },
+            assignments: {
+              select: { id: true, title: true }
+            }
+          }
+        },
+        progress: {
+          select: {
+            completedSubSectionIds: true,
+            lastAccessedSubSectionId: true,
+            updatedAt: true
+          }
+        },
+        quizAttempts: {
+          select: {
+            id: true,
+            quizId: true,
+            passed: true,
+            percentage: true,
+            totalScore: true,
+            maxScore: true,
+            submittedAt: true,
+            createdAt: true
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        assignmentSubmissions: {
+          select: {
+            id: true,
+            assignmentId: true,
+            status: true,
+            grade: true,
+            score: true,
+            submittedAt: true,
+            reviewedAt: true
+          },
+          orderBy: { submittedAt: 'desc' }
+        }
+      },
+      orderBy: { assignedDate: 'desc' }
+    });
+
+    const empIds = [...new Set(assignmentsList.map(a => a.employeeId))];
+    const tIds = [...new Set(assignmentsList.map(a => a.trainingId))];
+
+    let fallbackQuizAttempts = [];
+    let fallbackSubmissions = [];
+
+    if (empIds.length > 0 && tIds.length > 0) {
+      fallbackQuizAttempts = await prisma.quizAttempt.findMany({
+        where: {
+          employeeId: { in: empIds },
+          quiz: { trainingId: { in: tIds } }
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          quizId: true,
+          passed: true,
+          percentage: true,
+          submittedAt: true,
+          createdAt: true,
+          quiz: { select: { trainingId: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      fallbackSubmissions = await prisma.assignmentSubmission.findMany({
+        where: {
+          employeeId: { in: empIds },
+          assignment: { trainingId: { in: tIds } }
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          assignmentId: true,
+          status: true,
+          grade: true,
+          score: true,
+          submittedAt: true,
+          reviewedAt: true,
+          assignment: { select: { trainingId: true } }
+        },
+        orderBy: { submittedAt: 'desc' }
+      });
+    }
+
+    const records = assignmentsList
+      .filter(a => a.employee && (a.employee.status === 'active' || a.employee.status === 'ACTIVE'))
+      .map(a => {
+        let totalLectures = 0;
+        a.training?.sections?.forEach(sec => {
+          totalLectures += (sec.subSections?.length || 0);
+        });
+        const completedLectureIds = a.progress?.completedSubSectionIds || [];
+        const completedLectures = completedLectureIds.length;
+
+        const attempts = (a.quizAttempts && a.quizAttempts.length > 0)
+          ? a.quizAttempts
+          : fallbackQuizAttempts.filter(qa => qa.employeeId === a.employeeId && qa.quiz?.trainingId === a.trainingId);
+
+        let quizPerformance = 'N/A';
+        const hasQuizzes = (a.training?.quizzes && a.training.quizzes.length > 0) || attempts.length > 0;
+        if (hasQuizzes) {
+          if (attempts.length > 0) {
+            const latestAttempt = attempts[0];
+            const avgPercentage = Math.round(attempts.reduce((sum, q) => sum + (Number(q.percentage) || 0), 0) / attempts.length);
+            quizPerformance = `${avgPercentage}% (${latestAttempt.passed ? 'Passed' : 'Failed'})`;
+          } else {
+            quizPerformance = 'Not Attempted';
+          }
+        }
+
+        const submissions = (a.assignmentSubmissions && a.assignmentSubmissions.length > 0)
+          ? a.assignmentSubmissions
+          : fallbackSubmissions.filter(s => s.employeeId === a.employeeId && s.assignment?.trainingId === a.trainingId);
+
+        let assignmentStatus = 'N/A';
+        const hasAssignments = (a.training?.assignments && a.training.assignments.length > 0) || submissions.length > 0;
+        if (hasAssignments) {
+          if (submissions.length > 0) {
+            const latestSub = submissions[0];
+            if (latestSub.status === 'reviewed') {
+              assignmentStatus = latestSub.grade ? `Reviewed (Grade: ${latestSub.grade})` : (latestSub.score ? `Reviewed (${latestSub.score} pts)` : 'Reviewed');
+            } else if (latestSub.status === 'submitted') {
+              assignmentStatus = 'Pending Review';
+            } else {
+              assignmentStatus = latestSub.status.charAt(0).toUpperCase() + latestSub.status.slice(1);
+            }
+          } else {
+            assignmentStatus = 'Not Submitted';
+          }
+        }
+
+        const progressPercentage = Math.min(100, Math.round(Number(a.progressPercentage) || 0));
+        let normalizedStatus = 'Not Started';
+        if (progressPercentage >= 100 || a.status === 'Completed') {
+          normalizedStatus = 'Completed';
+        } else if (progressPercentage > 0 || completedLectures > 0 || attempts.length > 0 || submissions.length > 0 || a.status === 'In Progress') {
+          normalizedStatus = 'In Progress';
+        }
+
+        let lastActivity = a.progress?.updatedAt || a.completedDate || a.updatedAt || a.assignedDate;
+        if (attempts[0]?.submittedAt && new Date(attempts[0].submittedAt) > new Date(lastActivity)) {
+          lastActivity = attempts[0].submittedAt;
+        }
+        if (submissions[0]?.submittedAt && new Date(submissions[0].submittedAt) > new Date(lastActivity)) {
+          lastActivity = submissions[0].submittedAt;
+        }
+
+        return {
+          id: a.id,
+          assignmentId: a.id,
+          learnerId: a.employee.id,
+          learnerName: a.employee.name,
+          learnerEmail: a.employee.email,
+          profilePicture: a.employee.profilePicture,
+          jobRole: a.employee.jobRole,
+          courseId: a.training?.id,
+          courseTitle: a.training?.title || 'Course',
+          progressPercentage,
+          completedLectures,
+          totalLectures,
+          quizPerformance,
+          assignmentStatus,
+          lastActivity,
+          assignedDate: a.assignedDate,
+          completedDate: a.completedDate,
+          deadline: a.deadline,
+          isLocked: a.isLocked,
+          status: normalizedStatus
+        };
+      });
+
+    const uniqueLearnerIds = new Set(records.map(r => r.learnerId));
+    const totalLearners = uniqueLearnerIds.size;
+    const activeLearners = records.filter(r => r.status === 'In Progress').length;
+    const completedCourses = records.filter(r => r.status === 'Completed').length;
+    const pendingLearners = records.filter(r => r.status !== 'Completed').length;
+
+    const coursesMap = new Map();
+    records.forEach(r => {
+      if (r.courseId && !coursesMap.has(r.courseId)) {
+        coursesMap.set(r.courseId, { id: r.courseId, title: r.courseTitle });
+      }
+    });
+
+    res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          records,
+          summary: {
+            totalLearners,
+            activeLearners,
+            completedCourses,
+            pendingLearners
+          },
+          courses: Array.from(coursesMap.values())
+        },
+        'Learner progress retrieved successfully'
+      )
+    );
   } catch (error) {
     next(error);
   }
@@ -735,6 +1043,7 @@ module.exports = {
   getAutoRules,
   getMyAssignments,
   getAllAssignments,
+  getLearnerProgress,
   extendDeadline,
   lockTraining,
   unlockTraining

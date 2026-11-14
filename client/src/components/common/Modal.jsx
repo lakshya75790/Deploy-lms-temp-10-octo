@@ -8,9 +8,11 @@ export const Modal = ({
   title,
   children,
   maxWidth = 'max-w-xl',
-  closeOnBackdropClick = true,
+  closeOnBackdropClick = false,
   closeOnEscape = true,
-  contentClassName = ''
+  contentClassName = '',
+  showCloseButton = true,
+  zIndex = 'z-[9999]'
 }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -40,7 +42,7 @@ export const Modal = ({
 
   return ReactDOM.createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-2 xs:p-3 sm:p-6 bg-slate-900/50 backdrop-blur-xs animate-fade-in"
+      className={`fixed inset-0 ${zIndex} flex items-center justify-center p-2 xs:p-3 sm:p-6 bg-slate-900/50 backdrop-blur-xs animate-fade-in`}
       onClick={() => {
         if (closeOnBackdropClick) {
           onClose();
@@ -56,13 +58,15 @@ export const Modal = ({
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight min-w-0 flex-1 break-words [overflow-wrap:anywhere] [overflow-wrap:break-word] leading-snug">
             {title}
           </h3>
-          <button
-            onClick={onClose}
-            aria-label="Close Modal"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors focus:outline-none cursor-pointer flex-shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {showCloseButton && (
+            <button
+              onClick={onClose}
+              aria-label="Close Modal"
+              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors focus:outline-none cursor-pointer flex-shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Modal Content */}
@@ -79,4 +83,3 @@ export const Modal = ({
     document.body
   );
 };
-

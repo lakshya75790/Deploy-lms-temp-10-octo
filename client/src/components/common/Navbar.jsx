@@ -7,12 +7,12 @@ import { formatDisplayText } from '../../utils/formatters';
 import { ProfileModal } from '../profile/ProfileModal';
 import { ChangePasswordModal } from '../profile/ChangePasswordModal';
 import { ConfirmationModal } from './ConfirmationModal';
-import { Bell, Check, User, KeyRound, LogOut, CheckCheck, Sparkles, Building, Menu, GraduationCap, Sun, Moon } from 'lucide-react';
+import { Bell, Check, User, KeyRound, LogOut, CheckCheck, Sparkles, Building, Menu, GraduationCap, Sun, Moon, X } from 'lucide-react';
 
 export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { notifications, unreadCount, markAsRead, markAllRead } = useNotification();
+  const { notifications, unreadCount, markAsRead, markAllRead, deleteNotification } = useNotification();
   const { theme, toggleTheme, isDark } = useTheme();
 
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -183,13 +183,26 @@ export const Navbar = ({ onToggleMobileSidebar = () => {} }) => {
                           onClick={(e) => {
                             e.stopPropagation();
                           }}
-                          className={`group relative p-3.5 text-xs transition-colors cursor-default ${
+                          className={`group relative pl-3.5 pr-8 py-3 text-xs transition-colors cursor-default ${
                             !n.isRead
                               ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-l-3 border-emerald-600 dark:border-emerald-500 hover:bg-emerald-100/50 dark:hover:bg-emerald-950/60'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-2 mb-1">
+                          {/* Close/Delete (X) icon positioned in top-right corner */}
+                          <button
+                            type="button"
+                            title="Delete Notification"
+                            aria-label="Delete Notification"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteNotification(n.id || n._id);
+                            }}
+                            className="absolute top-2.5 right-2.5 p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors z-10 cursor-pointer flex items-center justify-center"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <div className="flex items-start justify-between gap-2 mb-1 pr-2">
                             <h5 className="font-semibold text-slate-900 dark:text-slate-100 break-words flex-1 min-w-0">
                               {formatDisplayText(n.title)}
                             </h5>

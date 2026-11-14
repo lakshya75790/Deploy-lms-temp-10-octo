@@ -549,7 +549,7 @@ const assignTrainingByDeptAndRole = async (adminId, organizationId, departmentId
   const employees = await prisma.user.findMany({ where: whereClause });
 
   if (employees.length === 0) {
-    throw new ApiError(400, 'No active employees match the specified Department and Job Role');
+    throw new ApiError(400, 'No active learners match the specified Group and Subgroup');
   }
 
   const now = new Date();

@@ -11,6 +11,10 @@ const protect = async (req, res, next) => {
       token = req.headers.authorization.split(' ')[1];
     }
 
+    if (!token && req.query?.token) {
+      token = req.query.token;
+    }
+
     if (!token) {
       throw new ApiError(401, 'Not authorized, token missing');
     }

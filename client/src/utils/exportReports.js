@@ -18,17 +18,17 @@ const downloadCSV = (filename, csvContent) => {
 };
 
 export const exportEmployeeProgressReport = (employees) => {
-  let csv = 'Learner Name,Email,Group,Role,Total Assigned,Completed,In Progress,Pending,Overdue,Compliance Rate (%),Overall Progress (%)\n';
+  let csv = 'Learner Name,Email,Group,Subgroup,Total Assigned,Completed,In Progress,Pending,Overdue,Compliance Rate (%),Overall Progress (%)\n';
   employees.forEach(e => {
     const groupName = e.departmentName && e.departmentName !== 'Unassigned' ? e.departmentName : 'No Group Assigned';
-    const roleName = e.jobRole && e.jobRole !== 'Unassigned' ? e.jobRole : 'No Role Assigned';
+    const roleName = e.jobRole && e.jobRole !== 'Unassigned' ? e.jobRole : 'No Subgroup Assigned';
     csv += `"${e.name}","${e.email}","${groupName}","${roleName}",${e.totalAssigned},${e.completed},${e.inProgress},${e.pending},${e.overdue},${e.complianceRate},${e.overallProgress}\n`;
   });
   downloadCSV(`Learner_Progress_Report_${Date.now()}.csv`, csv);
 };
 
 export const exportDepartmentComplianceReport = (departments) => {
-  let csv = 'Group Name,Total Learners,Total Roles,Total Assigned,Completed,In Progress,Pending,Overdue,Compliance Rate (%)\n';
+  let csv = 'Group Name,Total Learners,Total Subgroups,Total Assigned,Completed,In Progress,Pending,Overdue,Compliance Rate (%)\n';
   departments.forEach(d => {
     csv += `"${d.departmentName}",${d.totalEmployees},${d.totalRoles || 0},${d.totalAssigned},${d.completed},${d.inProgress},${d.pending},${d.overdue},${d.complianceRate}\n`;
   });
@@ -44,10 +44,10 @@ export const exportTrainingAnalyticsReport = (trainings) => {
 };
 
 export const exportOverdueReport = (overdueItems) => {
-  let csv = 'Learner Name,Email,Group,Role,Course Name,Deadline,Days Overdue,Progress (%),Assigned By\n';
+  let csv = 'Learner Name,Email,Group,Subgroup,Course Name,Deadline,Days Overdue,Progress (%),Assigned By\n';
   overdueItems.forEach(o => {
     const groupName = o.departmentName && o.departmentName !== 'Unassigned' ? o.departmentName : 'No Group Assigned';
-    const roleName = o.jobRole && o.jobRole !== 'Unassigned' ? o.jobRole : 'No Role Assigned';
+    const roleName = o.jobRole && o.jobRole !== 'Unassigned' ? o.jobRole : 'No Subgroup Assigned';
     csv += `"${o.employeeName}","${o.employeeEmail}","${groupName}","${roleName}","${o.trainingTitle}","${new Date(o.deadline).toLocaleDateString()}",${o.daysOverdue},${o.currentProgress},"${o.assignedBy}"\n`;
   });
   downloadCSV(`Overdue_Training_Assignments_Report_${Date.now()}.csv`, csv);
@@ -73,7 +73,7 @@ export const exportFullOrgReport = (data) => {
   });
 
   csv += '\n=== LEARNER PROGRESS ===\n';
-  csv += 'Learner Name,Email,Group,Role,Assigned,Completed,In Progress,Pending,Overdue,Overall Progress (%)\n';
+  csv += 'Learner Name,Email,Group,Subgroup,Assigned,Completed,In Progress,Pending,Overdue,Overall Progress (%)\n';
   (data.employeeAnalytics || []).forEach(e => {
     csv += `"${e.name}","${e.email}","${e.departmentName}","${e.jobRole}",${e.totalAssigned},${e.completed},${e.inProgress},${e.pending},${e.overdue},${e.overallProgress}\n`;
   });

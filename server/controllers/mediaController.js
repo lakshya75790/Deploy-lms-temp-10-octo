@@ -1,4 +1,4 @@
-const { getCloudinary } = require('../config/cloudinary');
+const { getCloudinary, fetchCloudinaryAssetBuffer } = require('../config/cloudinary');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 
@@ -95,6 +95,13 @@ const uploadToCloudinary = (file, folder, resourceType = 'auto') => {
         folder: `org_lms/${folder}`,
         resource_type: resourceType
       };
+
+      if (resourceType === 'raw' && file.originalname) {
+        const path = require('path');
+        const ext = path.extname(file.originalname) || '.pdf';
+        const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+        options.public_id = `${baseName}_${Date.now()}${ext.toLowerCase()}`;
+      }
 
       if (resourceType === 'video') {
         options.timeout = 120000;
@@ -252,10 +259,86 @@ const deleteMedia = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Securely view/stream any LMS PDF asset without exposing Cloudinary URL
+ * @route   GET /api/media/view-pdf
+ * @access  Private (Authenticated User)
+ */
+const viewPdfMedia = async (req, res, next) => {
+  try {
+    const { url, publicId } = req.query;
+    const target = (publicId || url || '').trim();
+
+    if (!target) {
+      throw new ApiError(400, 'PDF file URL or asset identifier is required');
+    }
+
+    const asset = await fetchCloudinaryAssetBuffer(target, {
+      resourceType: 'raw'
+    });
+    const buffer = asset.buffer;
+
+    let filename = 'document.pdf';
+    let mimeType = 'application/pdf';
+
+    try {
+      const urlParts = target.split('/');
+      let raw = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
+      if (raw && raw.length > 2) {
+        let cleaned = raw.replace(/_\d{10,14}(\.[a-zA-Z0-9]+)$/i, '$1');
+        filename = cleaned;
+      }
+    } catch {}
+
+    const lowerName = filename.toLowerCase();
+    if (lowerName.endsWith('.png')) mimeType = 'image/png';
+    else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+    else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
+    else if (lowerName.endsWith('.svg')) mimeType = 'image/svg+xml';
+    else if (lowerName.endsWith('.gif')) mimeType = 'image/gif';
+    else if (lowerName.endsWith('.pdf') || buffer.toString('utf8', 0, 5).startsWith('%PDF-')) {
+      mimeType = 'application/pdf';
+      if (!lowerName.endsWith('.pdf')) filename = `${filename}.pdf`;
+    }
+
+    const safeAsciiFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const totalLength = buffer.length;
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Content-Disposition', `inline; filename="${safeAsciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && rangeHeader.startsWith('bytes=')) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10) || 0;
+      const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+      if (start >= totalLength || end >= totalLength || start > end) {
+        res.setHeader('Content-Range', `bytes */${totalLength}`);
+        return res.status(416).send('Requested Range Not Satisfiable');
+      }
+
+      const chunk = buffer.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalLength}`);
+      res.setHeader('Content-Length', chunk.length);
+      return res.send(chunk);
+    }
+
+    res.setHeader('Content-Length', totalLength);
+    return res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   uploadImage,
   uploadVideo,
   uploadPdf,
+  viewPdfMedia,
   deleteMedia,
   deleteMediaAsset,
   extractCloudinaryAssetInfo

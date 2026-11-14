@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getEmployees, getInstructors, createInstructor, createAdmin, updateUserStatus, deleteUser, getDepartments } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
 import { Users, UserCheck, Plus, CheckCircle2, Power, Eye, EyeOff, AlertTriangle, AlertCircle, Trash2, Search, X } from 'lucide-react';
 import {
@@ -23,6 +24,9 @@ export const UsersManager = () => {
   const [licenseStats, setLicenseStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [empPage, setEmpPage] = useState(1);
+  const [instPage, setInstPage] = useState(1);
+  const pageSize = 10;
 
   // Modal states
   const [showInstModal, setShowInstModal] = useState(false);
@@ -272,6 +276,21 @@ export const UsersManager = () => {
     return nameMatch || emailMatch || idMatch || deptMatch;
   });
 
+  useEffect(() => {
+    setEmpPage(1);
+    setInstPage(1);
+  }, [search, activeTab, employees.length, instructors.length]);
+
+  const paginatedEmployees = useMemo(() => {
+    const start = (empPage - 1) * pageSize;
+    return filteredEmployees.slice(start, start + pageSize);
+  }, [filteredEmployees, empPage, pageSize]);
+
+  const paginatedInstructors = useMemo(() => {
+    const start = (instPage - 1) * pageSize;
+    return filteredInstructors.slice(start, start + pageSize);
+  }, [filteredInstructors, instPage, pageSize]);
+
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
       {/* Header & Tabs */}
@@ -395,7 +414,7 @@ export const UsersManager = () => {
           <EmptyState
             icon={Users}
             title="No Matching Learners Found"
-            description={`No learners matched "${search.trim()}". Try searching by name, email, employee ID, group, or role.`}
+            description={`No learners matched "${search.trim()}". Try searching by name, email, employee ID, group, or subgroup.`}
             action={
               <button
                 onClick={() => setSearch('')}
@@ -412,14 +431,14 @@ export const UsersManager = () => {
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
                     <th className="p-4">Learner</th>
-                    <th className="p-4">Group & Role</th>
+                    <th className="p-4">Group & Subgroup</th>
                     <th className="p-4">Profile Status</th>
                     <th className="p-4">Account Status</th>
                     <th className="p-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredEmployees.map((emp) => (
+                  {paginatedEmployees.map((emp) => (
                     <tr key={emp._id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-4">
                         <div className="flex items-center space-x-3 min-w-0 max-w-xs sm:max-w-sm">
@@ -436,7 +455,7 @@ export const UsersManager = () => {
                       </td>
                       <td className="p-4">
                         <p className="font-semibold text-emerald-600">{emp.departmentId?.name || 'Unassigned'}</p>
-                        <p className="text-[11px] text-slate-500">{emp.jobRole || 'No role selected'}</p>
+                        <p className="text-[11px] text-slate-500">{emp.jobRole || 'No subgroup selected'}</p>
                       </td>
                       <td className="p-4">
                         {emp.isProfileComplete ? (
@@ -490,6 +509,14 @@ export const UsersManager = () => {
                 </tbody>
               </table>
             </div>
+
+            <Pagination
+              currentPage={empPage}
+              totalItems={filteredEmployees.length}
+              pageSize={pageSize}
+              onPageChange={setEmpPage}
+              itemLabel="learners"
+            />
           </div>
         )
       ) : (
@@ -510,10 +537,11 @@ export const UsersManager = () => {
             }
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-            {filteredInstructors.map((inst) => (
-              <div
-                key={inst._id || inst.id}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+              {paginatedInstructors.map((inst) => (
+                <div
+                  key={inst._id || inst.id}
                 className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between space-y-4 hover:border-slate-300 transition-all"
               >
                 {/* Header: User Info & Action Buttons */}
@@ -579,7 +607,17 @@ export const UsersManager = () => {
               </div>
             ))}
           </div>
-        )
+
+          <Pagination
+            currentPage={instPage}
+            totalItems={filteredInstructors.length}
+            pageSize={pageSize}
+            onPageChange={setInstPage}
+            itemLabel="instructors"
+            className="rounded-2xl border border-slate-200 bg-white"
+          />
+        </div>
+      )
       )}
 
       {/* Create Instructor Modal */}

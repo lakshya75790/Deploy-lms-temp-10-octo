@@ -33,9 +33,35 @@ const getAuditLogs = async (req, res, next) => {
       take: limit
     });
 
+    const normalizeAction = (action) => {
+      if (!action) return action;
+      return String(action)
+        .replace(/_DEPARTMENT/g, '_GROUP')
+        .replace(/_ROLE/g, '_SUBGROUP');
+    };
+
+    const normalizeTargetType = (targetType) => {
+      if (!targetType) return targetType;
+      if (targetType === 'Department') return 'Group';
+      if (targetType === 'Role') return 'Subgroup';
+      return targetType;
+    };
+
+    const normalizeDetails = (details) => {
+      if (!details || typeof details !== 'string') return details;
+      return details
+        .replace(/\bdepartments\b/gi, (m) => m[0] === 'D' ? 'Groups' : 'groups')
+        .replace(/\bdepartment\b/gi, (m) => m[0] === 'D' ? 'Group' : 'group')
+        .replace(/\broles\b/gi, (m) => m[0] === 'R' ? 'Subgroups' : 'subgroups')
+        .replace(/\brole\b/gi, (m) => m[0] === 'R' ? 'Subgroup' : 'subgroup');
+    };
+
     const auditLogs = logs.map(log => {
       const transformed = withId(log);
       if (transformed.user) transformed.userId = transformed.user;
+      if (transformed.action) transformed.action = normalizeAction(transformed.action);
+      if (transformed.targetType) transformed.targetType = normalizeTargetType(transformed.targetType);
+      if (transformed.details) transformed.details = normalizeDetails(transformed.details);
       return transformed;
     });
 

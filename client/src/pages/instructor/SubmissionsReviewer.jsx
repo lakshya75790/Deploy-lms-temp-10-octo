@@ -1,9 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { getInstructorSubmissions, getTrainings, reviewSubmission } from '../../services/api';
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  getInstructorSubmissions,
+  getTrainings,
+  reviewSubmission,
+  downloadAssignmentSubmission,
+  getSubmissionPdfViewUrl,
+  getSubmissionDownloadUrl
+} from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
+import { DocumentPreviewModal } from '../../components/common/DocumentPreviewModal';
 import { CustomSelectDropdown } from '../../components/common/CustomSelectDropdown';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
 import {
@@ -13,25 +22,39 @@ import {
   Clock,
   Sparkles,
   Code2,
-  Download
+  Link2,
+  Download,
+  Eye,
+  Loader2
 } from 'lucide-react';
 
 const getDisplayFileName = (submission) => {
-  if (submission?.originalFilename) return submission.originalFilename;
-  if (submission?.originalName) return submission.originalName;
-  if (submission?.fileName) return submission.fileName;
+  if (submission?.originalFilename) {
+    const fn = submission.originalFilename;
+    return fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf`;
+  }
+  if (submission?.originalName) {
+    const fn = submission.originalName;
+    return fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf`;
+  }
+  if (submission?.fileName) {
+    const fn = submission.fileName;
+    return fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf`;
+  }
   if (submission?.fileUrl) {
     try {
       const urlParts = submission.fileUrl.split('/');
-      const rawName = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
-      if (rawName && rawName.trim()) {
+      let rawName = decodeURIComponent(urlParts[urlParts.length - 1] || '').split('?')[0];
+      if (rawName && rawName.trim() && rawName.length > 3) {
         return rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`;
       }
     } catch {
       // fallback
     }
   }
-  return 'Submitted_Document.pdf';
+  const empName = (submission?.employeeId?.name || submission?.employee?.name || 'Learner').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const assTitle = (submission?.assignmentId?.title || submission?.assignment?.title || 'Assignment').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `${empName}_${assTitle}.pdf`;
 };
 
 export const SubmissionsReviewer = () => {
@@ -41,12 +64,52 @@ export const SubmissionsReviewer = () => {
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all'); // 'all' | 'submitted' | 'reviewed'
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [activeSubmission, setActiveSubmission] = useState(null);
   const [grade, setGrade] = useState('Good'); // 'Excellent' | 'Good' | 'Satisfactory' | 'Needs Improvement' | 'Poor'
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
+
+  const handleDownload = async (sub, e) => {
+    if (e) e.stopPropagation();
+    const subId = sub._id || sub.id;
+    if (!subId) return;
+    try {
+      setDownloadingId(subId);
+      const res = await downloadAssignmentSubmission(subId);
+      let filename = getDisplayFileName(sub);
+      const disposition = res.headers?.['content-disposition'];
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, '').trim();
+        }
+      }
+      if (!filename.toLowerCase().endsWith('.pdf')) {
+        filename = `${filename}.pdf`;
+      }
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      addToast('success', `Downloaded ${filename}`);
+    } catch (err) {
+      console.error('Download error:', err);
+      addToast('error', err.response?.data?.message || 'Failed to download original submission file. Please try again.');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   useEffect(() => {
     getTrainings()
@@ -105,6 +168,15 @@ export const SubmissionsReviewer = () => {
     return true;
   });
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedTrainingId, filterStatus, submissions.length]);
+
+  const paginatedSubmissions = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredSubmissions.slice(start, start + pageSize);
+  }, [filteredSubmissions, currentPage, pageSize]);
+
   const totalCount = submissions.length;
   const pendingCount = submissions.filter(s => s.status === 'submitted').length;
   const reviewedCount = submissions.filter(s => s.status === 'reviewed').length;
@@ -124,7 +196,7 @@ export const SubmissionsReviewer = () => {
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight font-heading break-words">Project Submissions & Grading Studio</h1>
           <p className="text-xs text-slate-500">
-            Review learner code repositories, evaluate project submissions, assign qualitative grades, and provide feedback.
+            Review learner project submissions, evaluate submitted URLs and files, assign qualitative grades, and provide feedback.
           </p>
         </div>
 
@@ -220,7 +292,7 @@ export const SubmissionsReviewer = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredSubmissions.map((sub) => {
+                {paginatedSubmissions.map((sub) => {
                   const emp = sub.employeeId || {};
                   const assign = sub.assignmentId || {};
                   const trainingTitle = assign.trainingId?.title || 'Training Course';
@@ -248,34 +320,56 @@ export const SubmissionsReviewer = () => {
 
                       <td className="p-4 space-y-1">
                         <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700 inline-block mb-1 border border-slate-200">
-                          {sub.submissionType === 'github' ? 'GitHub Repo' : 'File Upload'}
+                          {sub.submissionType === 'github' ? 'URL/Link' : 'File Upload'}
                         </span>
 
                         {sub.submissionType === 'github' && sub.githubUrl && (
-                          <div>
+                          <div className="max-w-[240px] sm:max-w-xs md:max-w-sm">
                             <a
-                              href={sub.githubUrl}
+                              href={sub.githubUrl.startsWith('http://') || sub.githubUrl.startsWith('https://') ? sub.githubUrl : `https://${sub.githubUrl}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center text-xs text-teal-700 font-mono font-semibold hover:underline"
+                              className="inline-flex items-center max-w-full text-xs text-teal-700 font-mono font-semibold hover:underline group"
+                              title={sub.githubUrl}
                             >
-                              <Code2 className="w-3.5 h-3.5 mr-1" />
-                              Open GitHub Repository <ExternalLink className="w-3 h-3 ml-1" />
+                              <Link2 className="w-3.5 h-3.5 mr-1.5 shrink-0 text-teal-600" />
+                              <span className="truncate">{sub.githubUrl}</span>
+                              <ExternalLink className="w-3 h-3 ml-1 shrink-0 opacity-70 group-hover:opacity-100" />
                             </a>
                           </div>
                         )}
 
                         {sub.submissionType === 'file' && sub.fileUrl && (
-                          <div>
-                            <a
-                              href={sub.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center text-xs text-emerald-700 font-mono font-semibold hover:underline"
+                          <div className="flex items-center space-x-2 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc({
+                                submissionId: sub._id || sub.id,
+                                fileUrl: sub.fileUrl,
+                                fileName: getDisplayFileName(sub),
+                                fileType: 'pdf'
+                              })}
+                              className="inline-flex items-center text-xs text-teal-700 font-semibold hover:underline cursor-pointer bg-transparent border-0 p-0"
+                              title="Preview PDF In-App"
                             >
-                              <Download className="w-3.5 h-3.5 mr-1" />
-                              Download / View File <ExternalLink className="w-3 h-3 ml-1" />
-                            </a>
+                              <Eye className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                              View PDF
+                            </button>
+                            <span className="text-slate-300">|</span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDownload(sub, e)}
+                              disabled={downloadingId === (sub._id || sub.id)}
+                              className="inline-flex items-center text-xs text-emerald-700 font-semibold hover:underline cursor-pointer disabled:opacity-50"
+                              title="Download Original PDF"
+                            >
+                              {downloadingId === (sub._id || sub.id) ? (
+                                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-600" />
+                              ) : (
+                                <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                              )}
+                              Download
+                            </button>
                           </div>
                         )}
                       </td>
@@ -319,6 +413,14 @@ export const SubmissionsReviewer = () => {
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredSubmissions.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="submissions"
+          />
         </div>
       )}
 
@@ -340,7 +442,7 @@ export const SubmissionsReviewer = () => {
                   <p className="text-xs text-slate-500">{activeSubmission?.employeeId?.email}</p>
                 </div>
                 <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
-                  {activeSubmission?.submissionType === 'github' ? 'GitHub Link' : 'File Upload'}
+                  {activeSubmission?.submissionType === 'github' ? 'URL/Link' : 'File Upload'}
                 </span>
               </div>
 
@@ -352,16 +454,16 @@ export const SubmissionsReviewer = () => {
                 {activeSubmission?.submissionType === 'github' && activeSubmission?.githubUrl && (
                   <div className="pt-2">
                     <span className="text-[11px] text-slate-500 font-semibold block mb-1">
-                      Submitted Repository:
+                      Submitted URL / Link:
                     </span>
                     <a
-                      href={activeSubmission.githubUrl}
+                      href={activeSubmission.githubUrl.startsWith('http://') || activeSubmission.githubUrl.startsWith('https://') ? activeSubmission.githubUrl : `https://${activeSubmission.githubUrl}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 text-xs font-semibold transition-colors group cursor-pointer"
-                      title="Open GitHub Repository"
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 text-xs font-semibold transition-colors group cursor-pointer max-w-full"
+                      title={`Open: ${activeSubmission.githubUrl}`}
                     >
-                      <Code2 className="w-3.5 h-3.5 mr-1.5 text-teal-600 shrink-0" />
+                      <Link2 className="w-3.5 h-3.5 mr-1.5 text-teal-600 shrink-0" />
                       <span className="truncate max-w-xs sm:max-w-md font-mono">{activeSubmission.githubUrl}</span>
                       <ExternalLink className="w-3 h-3 ml-1.5 text-teal-500 shrink-0" />
                     </a>
@@ -373,17 +475,36 @@ export const SubmissionsReviewer = () => {
                     <span className="text-[11px] text-slate-500 font-semibold block mb-1">
                       Submitted File:
                     </span>
-                    <a
-                      href={activeSubmission.fileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-semibold transition-colors group cursor-pointer"
-                      title="Download / View Submitted File"
-                    >
-                      <Download className="w-3.5 h-3.5 mr-1.5 text-emerald-600 group-hover:translate-y-0.5 transition-transform shrink-0" />
-                      <span className="truncate max-w-xs sm:max-w-md font-mono">{getDisplayFileName(activeSubmission)}</span>
-                      <ExternalLink className="w-3 h-3 ml-1.5 text-emerald-500 shrink-0" />
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({
+                          submissionId: activeSubmission._id || activeSubmission.id,
+                          fileUrl: activeSubmission.fileUrl,
+                          fileName: getDisplayFileName(activeSubmission),
+                          fileType: 'pdf'
+                        })}
+                        className="inline-flex items-center px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 text-xs font-semibold transition-colors group cursor-pointer"
+                        title="Preview Submitted PDF In-App"
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1.5 text-teal-600 group-hover:scale-110 transition-transform shrink-0" />
+                        <span>View PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownload(activeSubmission, e)}
+                        disabled={downloadingId === (activeSubmission._id || activeSubmission.id)}
+                        className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-semibold transition-colors group cursor-pointer disabled:opacity-50"
+                        title="Download Original Submitted PDF"
+                      >
+                        {downloadingId === (activeSubmission._id || activeSubmission.id) ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-emerald-600 shrink-0" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5 mr-1.5 text-emerald-600 group-hover:translate-y-0.5 transition-transform shrink-0" />
+                        )}
+                        <span className="truncate max-w-xs sm:max-w-md font-mono">{getDisplayFileName(activeSubmission)}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -440,6 +561,19 @@ export const SubmissionsReviewer = () => {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* In-App Document Preview Modal */}
+      {previewDoc && (
+        <DocumentPreviewModal
+          isOpen={Boolean(previewDoc)}
+          onClose={() => setPreviewDoc(null)}
+          fileUrl={previewDoc.fileUrl}
+          submissionId={previewDoc.submissionId}
+          fileName={previewDoc.fileName}
+          title={previewDoc.title}
+          fileType={previewDoc.fileType}
+        />
       )}
     </div>
   );

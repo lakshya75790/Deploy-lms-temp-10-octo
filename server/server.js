@@ -1,3 +1,8 @@
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 const http = require('http');
 const dotenv = require('dotenv');
 dotenv.config();
@@ -21,11 +26,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[SERVER UNHANDLED REJECTION]:', reason?.message || reason);
 });
 
-// Start listening on port immediately so HTTP connections are never refused during startup
-server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
-
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use. Please terminate the process using port ${PORT}.`);
@@ -35,9 +35,11 @@ server.on('error', (err) => {
   }
 });
 
-// Connect to database and run background startup tasks
-connectDB()
-  .then(async () => {
+// Coordinate server startup: Initialize DB before accepting external requests to prevent race conditions
+const startServer = async () => {
+  try {
+    await connectDB();
+
     try {
       const ensureSuperAdminExists = require('./utils/seedSuperAdmin');
       await ensureSuperAdminExists();
@@ -49,10 +51,20 @@ connectDB()
     } catch (err) {
       console.error('Warning: Background initialization task failed:', err.message || err);
     }
-  })
-  .catch((err) => {
-    console.error('Database connection error during startup:', err.message || err);
-  });
+
+    server.listen(PORT, () => {
+      console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('Critical database connection error during startup:', err.message || err);
+    // Listen in degraded mode so /api/health and error diagnostics remain reachable
+    server.listen(PORT, () => {
+      console.log(`Server running in degraded mode on port ${PORT} (Database disconnected)`);
+    });
+  }
+};
+
+startServer();
 
 // Graceful Shutdown Handlers
 const shutdown = async () => {

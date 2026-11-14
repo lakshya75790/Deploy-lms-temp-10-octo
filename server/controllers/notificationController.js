@@ -19,6 +19,15 @@ const getNotifications = async (req, res, next) => {
     const orgId = String(req.user.organizationId?.id || req.user.organizationId?._id || req.user.organizationId);
     const userId = String(req.user.id || req.user._id);
 
+    // Safely delete notifications older than 30 days from database
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await prisma.notification.deleteMany({
+      where: {
+        organizationId: orgId,
+        createdAt: { lt: thirtyDaysAgo }
+      }
+    }).catch(err => console.error('Error auto-cleaning old notifications:', err));
+
     const whereClause = { organizationId: orgId };
 
     if (req.user.role === 'Admin') {
@@ -137,8 +146,53 @@ const markAllAsRead = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Delete Notification
+ * @route   DELETE /api/notifications/:id
+ * @access  Private
+ */
+const deleteNotification = async (req, res, next) => {
+  try {
+    if (req.user.role === 'SuperAdmin' || !req.user.organizationId) {
+      return res.status(200).json(new ApiResponse(200, {}, 'SuperAdmin notification deleted'));
+    }
+
+    const orgId = String(req.user.organizationId?.id || req.user.organizationId?._id || req.user.organizationId);
+    const userId = String(req.user.id || req.user._id);
+    const notifId = String(req.params.id);
+
+    const whereClause = {
+      id: notifId,
+      organizationId: orgId
+    };
+
+    if (req.user.role === 'Admin') {
+      whereClause.OR = [{ recipientId: userId }, { recipientId: null, role: 'Admin' }];
+    } else {
+      whereClause.recipientId = userId;
+    }
+
+    const notification = await prisma.notification.findFirst({
+      where: whereClause
+    });
+
+    if (!notification) {
+      throw new ApiError(404, 'Notification not found');
+    }
+
+    await prisma.notification.delete({
+      where: { id: notification.id }
+    });
+
+    res.status(200).json(new ApiResponse(200, { id: notifId }, 'Notification deleted successfully'));
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getNotifications,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  deleteNotification
 };

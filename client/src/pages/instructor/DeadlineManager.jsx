@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getAllAssignments, extendDeadline, lockTraining, unlockTraining } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
 import { formatDate } from '../../utils/formatters';
 import {
@@ -15,7 +16,12 @@ import {
   ShieldAlert,
   ShieldCheck,
   Search,
-  X
+  X,
+  Filter,
+  RotateCcw,
+  BookOpen,
+  Calendar,
+  ArrowUpDown
 } from 'lucide-react';
 
 export const DeadlineManager = () => {
@@ -23,6 +29,12 @@ export const DeadlineManager = () => {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'overdue' | 'locked' | 'in_progress' | 'assigned' | 'completed'
+  const [selectedTraining, setSelectedTraining] = useState('all');
+  const [urgencyFilter, setUrgencyFilter] = useState('all'); // 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future'
+  const [sortBy, setSortBy] = useState('earliest_deadline'); // 'earliest_deadline' | 'latest_deadline' | 'learner_asc' | 'training_asc'
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   // Extend Modal state
   const [showExtendModal, setShowExtendModal] = useState(false);
@@ -140,22 +152,137 @@ export const DeadlineManager = () => {
     }
   };
 
-  const filteredAssignments = assignments.filter((a) => {
-    if (!search.trim()) return true;
-    const term = search.trim().toLowerCase();
-    const learnerName = (a.employeeId?.name || a.employee?.name || '').toLowerCase();
-    const learnerEmail = (a.employeeId?.email || a.employee?.email || '').toLowerCase();
-    const learnerEmpId = (a.employeeId?.employeeId || a.employeeId?.employee_id || a.employeeId?._id || '').toLowerCase();
-    const courseTitle = (a.trainingId?.title || '').toLowerCase();
-    const statusText = (a.status || '').toLowerCase();
-    return (
-      learnerName.includes(term) ||
-      learnerEmail.includes(term) ||
-      learnerEmpId.includes(term) ||
-      courseTitle.includes(term) ||
-      statusText.includes(term)
-    );
-  });
+  const uniqueTrainings = useMemo(() => {
+    const set = new Set();
+    assignments.forEach(a => {
+      if (a.trainingId?.title) set.add(a.trainingId.title);
+    });
+    return Array.from(set).sort();
+  }, [assignments]);
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    let overdueCount = 0;
+    let lockedCount = 0;
+    let completedCount = 0;
+    let inProgressCount = 0;
+
+    assignments.forEach(a => {
+      const isCompleted = a.status === 'Completed' || a.progressPercentage === 100;
+      const isLocked = a.lockStatus?.isLocked || a.status === 'Locked' || a.isLocked;
+      const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && !isCompleted);
+
+      if (isOverdue) overdueCount++;
+      if (isLocked) lockedCount++;
+      if (isCompleted) completedCount++;
+      else if (a.status === 'In Progress' || (a.progressPercentage > 0 && a.progressPercentage < 100)) inProgressCount++;
+    });
+
+    return {
+      total: assignments.length,
+      overdue: overdueCount,
+      locked: lockedCount,
+      completed: completedCount,
+      inProgress: inProgressCount
+    };
+  }, [assignments]);
+
+  const hasActiveFilters = search.trim() !== '' || statusFilter !== 'all' || selectedTraining !== 'all' || urgencyFilter !== 'all' || sortBy !== 'earliest_deadline';
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setSelectedTraining('all');
+    setUrgencyFilter('all');
+    setSortBy('earliest_deadline');
+  };
+
+  const filteredAssignments = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todayEnd = todayStart + 24 * 60 * 60 * 1000;
+
+    return assignments
+      .filter((a) => {
+        const isCompleted = a.status === 'Completed' || a.progressPercentage === 100;
+        const isLocked = a.lockStatus?.isLocked || a.status === 'Locked' || a.isLocked;
+        const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && !isCompleted);
+        const deadlineTime = a.deadline ? new Date(a.deadline).getTime() : 0;
+        const diffDays = (deadlineTime - now.getTime()) / (1000 * 60 * 60 * 24);
+
+        // Search term
+        if (search.trim()) {
+          const term = search.trim().toLowerCase();
+          const learnerName = (a.employeeId?.name || a.employee?.name || '').toLowerCase();
+          const learnerEmail = (a.employeeId?.email || a.employee?.email || '').toLowerCase();
+          const learnerEmpId = (a.employeeId?.employeeId || a.employeeId?.employee_id || a.employeeId?._id || '').toLowerCase();
+          const courseTitle = (a.trainingId?.title || '').toLowerCase();
+          const statusText = (a.status || '').toLowerCase();
+          const matches = learnerName.includes(term) || learnerEmail.includes(term) || learnerEmpId.includes(term) || courseTitle.includes(term) || statusText.includes(term);
+          if (!matches) return false;
+        }
+
+        // Status filter
+        if (statusFilter === 'overdue' && !isOverdue) return false;
+        if (statusFilter === 'locked' && !isLocked) return false;
+        if (statusFilter === 'completed' && !isCompleted) return false;
+        if (statusFilter === 'in_progress' && (a.status !== 'In Progress' || isCompleted)) return false;
+        if (statusFilter === 'assigned' && (a.status !== 'Assigned' || isOverdue || isCompleted)) return false;
+
+        // Training filter
+        if (selectedTraining !== 'all' && a.trainingId?.title !== selectedTraining) {
+          return false;
+        }
+
+        // Urgency filter
+        if (urgencyFilter === 'overdue' && !isOverdue) return false;
+        if (urgencyFilter === 'due_today') {
+          if (deadlineTime < todayStart || deadlineTime >= todayEnd || isCompleted) return false;
+        }
+        if (urgencyFilter === 'due_3_days') {
+          if (diffDays < 0 || diffDays > 3 || isCompleted) return false;
+        }
+        if (urgencyFilter === 'due_7_days') {
+          if (diffDays < 0 || diffDays > 7 || isCompleted) return false;
+        }
+        if (urgencyFilter === 'future') {
+          if (diffDays <= 7 || isCompleted) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const dateA = a.deadline ? new Date(a.deadline).getTime() : 0;
+        const dateB = b.deadline ? new Date(b.deadline).getTime() : 0;
+
+        if (sortBy === 'earliest_deadline') {
+          return dateA - dateB;
+        }
+        if (sortBy === 'latest_deadline') {
+          return dateB - dateA;
+        }
+        if (sortBy === 'learner_asc') {
+          const nameA = a.employeeId?.name || a.employee?.name || '';
+          const nameB = b.employeeId?.name || b.employee?.name || '';
+          return nameA.localeCompare(nameB);
+        }
+        if (sortBy === 'training_asc') {
+          const titleA = a.trainingId?.title || '';
+          const titleB = b.trainingId?.title || '';
+          return titleA.localeCompare(titleB);
+        }
+        return 0;
+      });
+  }, [assignments, search, statusFilter, selectedTraining, urgencyFilter, sortBy]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, selectedTraining, urgencyFilter, sortBy, assignments.length]);
+
+  const paginatedAssignments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredAssignments.slice(start, start + pageSize);
+  }, [filteredAssignments, currentPage, pageSize]);
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
@@ -172,23 +299,24 @@ export const DeadlineManager = () => {
         </div>
       </div>
 
-      {/* Search Bar Controls */}
+      {/* Comprehensive Filter Controls Card */}
       {!loading && assignments.length > 0 && (
-        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="relative w-full sm:max-w-md">
+        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search learners by name, email, employee ID, or training..."
-              className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400 bg-white"
+              className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs text-slate-900 focus:bg-white focus:border-emerald-600 outline-none transition-all placeholder:text-slate-400"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                className="absolute right-3 top-2.5 p-0.5 rounded-md text-slate-400 hover:text-slate-600 cursor-pointer"
                 title="Clear search"
                 aria-label="Clear search"
               >
@@ -196,15 +324,100 @@ export const DeadlineManager = () => {
               </button>
             )}
           </div>
-          <div className="text-xs text-slate-500 font-medium self-start sm:self-center">
-            {search.trim() ? (
-              <span>
-                Showing <strong className="text-slate-800">{filteredAssignments.length}</strong> of {assignments.length} {assignments.length === 1 ? 'record' : 'records'}
-              </span>
-            ) : (
-              <span>
-                Total <strong className="text-slate-800">{assignments.length}</strong> {assignments.length === 1 ? 'learner assignment' : 'learner assignments'}
-              </span>
+
+          {/* Filter Dropdowns Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+            {/* Status Filter */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center">
+                <Filter className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Assignment Status
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 font-medium focus:border-emerald-600 outline-none cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="overdue">Overdue Only ({stats.overdue})</option>
+                <option value="locked">Locked Only ({stats.locked})</option>
+                <option value="in_progress">In Progress ({stats.inProgress})</option>
+                <option value="assigned">Assigned / Pending</option>
+                <option value="completed">Completed ({stats.completed})</option>
+              </select>
+            </div>
+
+            {/* Course Filter */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center">
+                <BookOpen className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Training Course
+              </label>
+              <select
+                value={selectedTraining}
+                onChange={(e) => setSelectedTraining(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 font-medium focus:border-emerald-600 outline-none cursor-pointer"
+              >
+                <option value="all">All Courses ({uniqueTrainings.length})</option>
+                {uniqueTrainings.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Deadline Urgency Filter */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center">
+                <Calendar className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Deadline Urgency
+              </label>
+              <select
+                value={urgencyFilter}
+                onChange={(e) => setUrgencyFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 font-medium focus:border-emerald-600 outline-none cursor-pointer"
+              >
+                <option value="all">All Deadlines</option>
+                <option value="overdue">Past Due (Overdue)</option>
+                <option value="due_today">Due Today</option>
+                <option value="due_3_days">Due within 3 Days</option>
+                <option value="due_7_days">Due within 7 Days</option>
+                <option value="future">Due in &gt; 7 Days</option>
+              </select>
+            </div>
+
+            {/* Sort Order */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center">
+                <ArrowUpDown className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Sort Order
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 font-medium focus:border-emerald-600 outline-none cursor-pointer"
+              >
+                <option value="earliest_deadline">Earliest / Overdue First</option>
+                <option value="latest_deadline">Latest Deadline First</option>
+                <option value="learner_asc">Learner Name (A-Z)</option>
+                <option value="training_asc">Course Title (A-Z)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Results Summary & Reset Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+            <div className="text-slate-500 font-medium">
+              Showing <strong className="text-slate-800 font-bold">{filteredAssignments.length}</strong> of{' '}
+              <strong className="text-slate-800 font-bold">{assignments.length}</strong> learner assignment{assignments.length === 1 ? '' : 's'}
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex items-center text-emerald-700 hover:text-emerald-800 font-semibold cursor-pointer self-start sm:self-auto"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                Reset All Filters
+              </button>
             )}
           </div>
         </div>
@@ -218,14 +431,16 @@ export const DeadlineManager = () => {
         <EmptyState
           icon={Clock}
           title="No Matching Learners Found"
-          description={`No learner assignments matched "${search.trim()}". Try searching by learner name, email, employee ID, or course.`}
+          description={hasActiveFilters ? "No learner assignments matched your active filter criteria. Try adjusting or resetting your filters." : "No matching assignments found."}
           action={
-            <button
-              onClick={() => setSearch('')}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
-            >
-              Clear Search
-            </button>
+            hasActiveFilters && (
+              <button
+                onClick={handleResetFilters}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs transition-colors"
+              >
+                Reset All Filters
+              </button>
+            )
           }
         />
       ) : (
@@ -242,7 +457,7 @@ export const DeadlineManager = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredAssignments.map((a) => {
+                {paginatedAssignments.map((a) => {
                   const isCompleted = a.status === 'Completed' || a.progressPercentage === 100;
                   const isLocked = a.lockStatus?.isLocked || a.status === 'Locked';
                   const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < new Date() && !isCompleted);
@@ -359,6 +574,14 @@ export const DeadlineManager = () => {
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredAssignments.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="records"
+          />
         </div>
       )}
 

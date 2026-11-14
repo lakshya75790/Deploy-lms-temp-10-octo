@@ -19,7 +19,8 @@ export const ConfirmationModal = ({
   loading = false,
   maxWidth = 'max-w-md',
   closeOnBackdropClick = false,
-  closeOnEscape = false
+  closeOnEscape = false,
+  showCloseButton = false
 }) => {
   if (!isOpen) return null;
 
@@ -41,6 +42,7 @@ export const ConfirmationModal = ({
       maxWidth={maxWidth}
       closeOnBackdropClick={closeOnBackdropClick}
       closeOnEscape={closeOnEscape}
+      showCloseButton={showCloseButton}
     >
       <div className="space-y-5">
         <div className="flex items-start space-x-3.5">

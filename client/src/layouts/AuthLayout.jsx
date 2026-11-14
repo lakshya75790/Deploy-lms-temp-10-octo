@@ -8,17 +8,17 @@ export const AuthLayout = () => {
   const { toggleTheme, isDark } = useTheme();
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-slate-50 dark:bg-slate-950 flex flex-col md:flex-row font-sans text-slate-800 dark:text-slate-100 overflow-x-hidden transition-colors duration-200">
+    <div className="min-h-screen min-h-[100dvh] md:h-screen md:max-h-screen md:overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col md:flex-row font-sans text-slate-800 dark:text-slate-100 overflow-x-hidden transition-colors duration-200">
       <ToastContainer />
 
       {/* Left Column: Deep Emerald -> Teal Gradient Panel */}
-      <div className="w-full md:w-5/12 lg:w-1/2 p-4 xs:p-6 sm:p-10 md:p-8 lg:p-12 xl:p-16 flex flex-col justify-between relative bg-gradient-to-br from-[#064E3B] via-[#0D5C46] to-[#0F766E] border-b md:border-b-0 md:border-r border-teal-800/80 text-white overflow-hidden shadow-2xl animate-auth-left">
+      <div className="w-full md:w-5/12 lg:w-1/2 md:h-screen p-4 xs:p-6 sm:p-10 md:p-8 lg:p-12 xl:p-16 flex flex-col relative bg-gradient-to-br from-[#064E3B] via-[#0D5C46] to-[#0F766E] border-b md:border-b-0 md:border-r border-teal-800/80 text-white overflow-hidden shadow-2xl animate-auth-left shrink-0">
         {/* Subtle Glow Accents */}
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-emerald-400/10 rounded-full blur-3xl pointer-events-none" />
 
         {/* Top Header Branding */}
-        <div className="relative z-10">
+        <div className="relative z-10 shrink-0">
           <Link to="/" className="inline-flex items-center space-x-3 group">
             <div className="w-10 h-10 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-teal-900/30 group-hover:scale-105 transition-transform">
               <GraduationCap className="w-5 h-5 text-white" />
@@ -30,7 +30,7 @@ export const AuthLayout = () => {
         </div>
 
         {/* Center Content / Universal LMS Value Proposition */}
-        <div className="relative z-10 my-4 sm:my-8 md:my-6 lg:my-0 space-y-4 sm:space-y-6 lg:space-y-8 max-w-xl">
+        <div className="relative z-10 mt-6 sm:mt-8 md:mt-8 lg:mt-10 mb-6 sm:mb-8 lg:mb-auto space-y-4 sm:space-y-6 lg:space-y-8 max-w-xl">
           <div className="space-y-2 sm:space-y-4">
             <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-xs font-bold backdrop-blur-xs">
               <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
@@ -63,7 +63,7 @@ export const AuthLayout = () => {
               </div>
               <h4 className="font-bold text-xs sm:text-sm text-white">Smart Assignments</h4>
               <p className="text-[11px] text-emerald-100/80 leading-normal">
-                Automatically assign courses based on groups, roles, or individual learners.
+                Automatically assign courses based on groups, subgroups, or individual learners.
               </p>
             </div>
 
@@ -80,7 +80,7 @@ export const AuthLayout = () => {
         </div>
 
         {/* Bottom Tagline */}
-        <div className="relative z-10 pt-4 sm:pt-6 border-t border-emerald-700/50 hidden sm:block">
+        <div className="relative z-10 pt-4 sm:pt-6 border-t border-emerald-700/50 mt-auto shrink-0 hidden sm:block">
           <p className="text-xs text-emerald-100/90 font-medium leading-relaxed tracking-wide">
             “Empowering learners and learning teams to teach, learn, track progress, and achieve better outcomes.”
           </p>
@@ -88,7 +88,7 @@ export const AuthLayout = () => {
       </div>
 
       {/* Right Column: Form Container */}
-      <div className="w-full md:w-7/12 lg:w-1/2 p-3.5 xs:p-5 sm:p-8 md:p-8 lg:p-12 xl:p-16 flex items-center justify-center bg-slate-50 dark:bg-slate-900 overflow-y-auto animate-auth-right min-h-[50vh] md:min-h-0 relative">
+      <div className="w-full md:w-7/12 lg:w-1/2 md:h-screen p-3 xs:p-4 sm:p-6 md:p-6 lg:p-8 xl:p-10 flex items-center justify-center bg-slate-50 dark:bg-slate-900 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden animate-auth-right min-h-[50vh] md:min-h-0 relative">
         {/* Floating Theme Toggle in Top Right */}
         <div className="absolute top-4 right-4 z-20">
           <button
@@ -108,7 +108,7 @@ export const AuthLayout = () => {
           </button>
         </div>
 
-        <div className="w-full max-w-md sm:max-w-lg md:max-w-md lg:max-w-md my-auto py-4 sm:py-6">
+        <div className="w-full max-w-md sm:max-w-lg md:max-w-md lg:max-w-md my-auto py-1 sm:py-2">
           <Outlet />
         </div>
       </div>

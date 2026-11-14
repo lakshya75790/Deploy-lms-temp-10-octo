@@ -194,7 +194,7 @@ export const Reports = () => {
       }
 
       const hasRole = Boolean(rawRole && rawRole.trim() && rawRole.trim() !== 'Unassigned');
-      const jobRole = hasRole ? rawRole.trim() : 'No Role Assigned';
+      const jobRole = hasRole ? rawRole.trim() : 'No Subgroup Assigned';
 
       return {
         ...item,
@@ -427,7 +427,7 @@ export const Reports = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search learner, group, role..."
+            placeholder="Search learner, group, subgroup..."
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none"
           />
         </div>
@@ -597,7 +597,7 @@ export const Reports = () => {
                 Group Wise Drill-Down Compliance
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Interactive organizational tree hierarchy: Group → Roles → Learners
+                Interactive organizational tree hierarchy: Group → Subgroups → Learners
               </p>
             </div>
             <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
@@ -633,7 +633,7 @@ export const Reports = () => {
                             <h4 className="font-extrabold text-slate-900 text-base font-heading">{dept.departmentName}</h4>
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            {dept.totalEmployees} Learners • {dept.totalRoles} Roles • {dept.totalAssigned} Trainings Assigned
+                            {dept.totalEmployees} Learners • {dept.totalRoles} {dept.totalRoles === 1 ? 'Subgroup' : 'Subgroups'} • {dept.totalAssigned} Trainings Assigned
                           </p>
                         </div>
                       </div>
@@ -669,7 +669,7 @@ export const Reports = () => {
 
                         {/* TREE CONTAINER WITH CONNECTOR SPINE */}
                         <div className="relative pl-6 sm:pl-8 space-y-4">
-                          {/* Continuous Vertical Spine Connector Line from Parent to Child Roles */}
+                          {/* Continuous Vertical Spine Connector Line from Parent to Child Subgroups */}
                           {dept.roles.length > 0 && (
                             <div className="absolute left-2.5 sm:left-3.5 top-2 bottom-6 w-0.5 bg-emerald-200/90 rounded-full" />
                           )}
@@ -680,11 +680,11 @@ export const Reports = () => {
 
                             return (
                               <div key={roleKey} className="relative">
-                                {/* L-Shaped Branch Connector to Role Card */}
+                                {/* L-Shaped Branch Connector to Subgroup Card */}
                                 <div className="absolute -left-3.5 sm:-left-4.5 top-5 w-4 sm:w-5 h-0.5 bg-emerald-200/90 rounded-l-xs" />
                                 <div className="absolute -left-4 sm:-left-5 top-4 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
 
-                                {/* ROLE CARD (CHILD NODE) */}
+                                {/* SUBGROUP CARD (CHILD NODE) */}
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs space-y-3 transition-all hover:border-emerald-300">
                                   <div
                                     onClick={() => toggleRoleExpand(roleKey)}
@@ -711,7 +711,7 @@ export const Reports = () => {
                                     </div>
                                   </div>
 
-                                  {/* Learners in Role (GRANDCHILD NODES) */}
+                                  {/* Learners in Subgroup (GRANDCHILD NODES) */}
                                   {isRoleExpanded && (
                                     <div className="pt-3 border-t border-slate-100 space-y-2.5 animate-fade-in relative pl-5 sm:pl-6">
                                       {/* Secondary Vertical Spine for Learners */}
@@ -720,7 +720,7 @@ export const Reports = () => {
                                       )}
 
                                       {role.employees.length === 0 ? (
-                                        <p className="text-xs text-slate-400 italic p-1">No learners assigned to this role.</p>
+                                        <p className="text-xs text-slate-400 italic p-1">No learners assigned to this subgroup.</p>
                                       ) : (
                                         role.employees.map((emp) => (
                                           <div key={emp._id} className="relative">
@@ -805,7 +805,7 @@ export const Reports = () => {
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
                     <th className="p-3.5">Learner</th>
-                    <th className="p-3.5">Group & Role</th>
+                    <th className="p-3.5">Group & Subgroup</th>
                     <th className="p-3.5 text-center">Assigned</th>
                     <th className="p-3.5 text-center">Completed</th>
                     <th className="p-3.5 text-center">In Progress</th>
@@ -949,7 +949,7 @@ export const Reports = () => {
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                   <tr>
                     <th className="p-3.5">Learner</th>
-                    <th className="p-3.5">Group & Role</th>
+                    <th className="p-3.5">Group & Subgroup</th>
                     <th className="p-3.5">Training Course</th>
                     <th className="p-3.5">Deadline</th>
                     <th className="p-3.5 text-center">Days Overdue</th>
@@ -1214,7 +1214,7 @@ export const Reports = () => {
                         : (e.departmentName && e.departmentName !== 'Unassigned') ? e.departmentName : 'No Group Assigned';
                       const role = (empDetails?.jobRole && empDetails.jobRole !== 'Unassigned')
                         ? empDetails.jobRole
-                        : (e.jobRole && e.jobRole !== 'Unassigned') ? e.jobRole : 'No Role Assigned';
+                        : (e.jobRole && e.jobRole !== 'Unassigned') ? e.jobRole : 'No Subgroup Assigned';
                       return (
                         <p className="text-[10px] text-slate-400">{group} • {role}</p>
                       );

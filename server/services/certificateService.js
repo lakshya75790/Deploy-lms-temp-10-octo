@@ -108,6 +108,22 @@ const generateCertificateForAssignment = async (trainingAssignmentId) => {
   const certId = await generateUniqueCertificateId();
   const completionDate = assignment.completedDate || new Date();
 
+  let customDesign = null;
+  if (template.layoutStyle && (template.layoutStyle.startsWith('{') || template.layoutStyle.startsWith('['))) {
+    try {
+      customDesign = JSON.parse(template.layoutStyle);
+    } catch (e) {
+      customDesign = null;
+    }
+  }
+
+  // Look up actual Organization Admin user's name
+  const orgAdmin = await prisma.user.findFirst({
+    where: { organizationId: assignment.organizationId, role: 'Admin' },
+    select: { name: true }
+  });
+  const adminName = orgAdmin?.name || template.signatureName || 'Organization Administrator';
+
   // Create Certificate record with immutable template snapshot
   const certificate = await prisma.certificate.create({
     data: {
@@ -125,13 +141,15 @@ const generateCertificateForAssignment = async (trainingAssignmentId) => {
         fontFamily: template.fontFamily || DEFAULT_TEMPLATE.fontFamily,
         borderStyle: template.borderStyle || DEFAULT_TEMPLATE.borderStyle,
         layoutStyle: template.layoutStyle || DEFAULT_TEMPLATE.layoutStyle,
+        customDesign,
         logoUrl: template.logoUrl || null,
         logoPublicId: template.logoPublicId || null,
         logoPosition: template.logoPosition || 'center',
         logoWidth: template.logoWidth || 130,
         signatureUrl: template.signatureUrl || null,
         signaturePublicId: template.signaturePublicId || null,
-        signatureName: template.signatureName || '',
+        signatureName: template.signatureName || adminName,
+        adminName,
         organizationName: assignment.organization.name
       }
     },

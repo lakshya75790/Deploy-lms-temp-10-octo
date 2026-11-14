@@ -96,14 +96,14 @@ const setupOrganization = async (req, res, next) => {
       }
     });
 
-    generateTokenAndSetCookie(res, admin.id, admin.role, admin.organizationId, admin.name);
+    const token = generateTokenAndSetCookie(res, admin.id, admin.role, admin.organizationId, admin.name);
 
     const userObj = formatUserResponse(admin);
 
     res.status(201).json(
       new ApiResponse(
         201,
-        { user: userObj, organization: withId(organization) },
+        { user: userObj, token, organization: withId(organization) },
         'Organization and Organization Admin setup completed successfully'
       )
     );
@@ -199,14 +199,14 @@ const registerEmployee = async (req, res, next) => {
       { entityType: 'User', entityId: employee.id }
     );
 
-    generateTokenAndSetCookie(res, employee.id, employee.role, employee.organizationId, employee.name);
+    const token = generateTokenAndSetCookie(res, employee.id, employee.role, employee.organizationId, employee.name);
 
     const userObj = formatUserResponse(employee);
 
     res.status(201).json(
       new ApiResponse(
         201,
-        { user: userObj, organization: withId(organization) },
+        { user: userObj, token, organization: withId(organization) },
         'Employee registered successfully'
       )
     );
@@ -274,14 +274,14 @@ const login = async (req, res, next) => {
       }
     }
 
-    generateTokenAndSetCookie(res, user.id, user.role, user.organizationId, user.name);
+    const token = generateTokenAndSetCookie(res, user.id, user.role, user.organizationId, user.name);
 
     const userObj = formatUserResponse(user);
 
     res.status(200).json(
       new ApiResponse(
         200,
-        { user: userObj },
+        { user: userObj, token },
         'Logged in successfully'
       )
     );
@@ -363,7 +363,8 @@ const getMe = async (req, res, next) => {
       console.log(`[PERF] GET /api/auth/me - Total: ${totalTime}ms`);
     }
 
-    res.status(200).json(new ApiResponse(200, { user: userObj }, 'Current user profile retrieved'));
+    const token = req.cookies?.jwt || (req.headers.authorization && req.headers.authorization.split(' ')[1]) || null;
+    res.status(200).json(new ApiResponse(200, { user: userObj, token }, 'Current user profile retrieved'));
   } catch (error) {
     next(error);
   }
@@ -662,6 +663,30 @@ const resetProfilePicture = async (req, res, next) => {
 const crypto = require('crypto');
 const { sendPasswordResetOTPEmail } = require('../services/emailService');
 
+const getOtpSecret = () => process.env.JWT_SECRET || 'lms_otp_secure_hmac_secret_key';
+
+const hashOtp = (rawOtp) => {
+  return crypto.createHmac('sha256', getOtpSecret()).update(String(rawOtp).trim()).digest('hex');
+};
+
+const compareOtp = async (inputOtp, storedHash) => {
+  if (!inputOtp || !storedHash) return false;
+  const cleanInput = String(inputOtp).trim();
+  // Backwards compatibility with any legacy bcrypt-hashed OTPs
+  if (storedHash.startsWith('$2')) {
+    return await bcrypt.compare(cleanInput, storedHash);
+  }
+  const computedHex = hashOtp(cleanInput);
+  try {
+    const bufA = Buffer.from(computedHex, 'hex');
+    const bufB = Buffer.from(storedHash, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+};
+
 /**
  * @desc    Request Password Reset OTP
  * @route   POST /api/auth/forgot-password
@@ -687,7 +712,15 @@ const requestPasswordResetOTP = async (req, res, next) => {
       }
     });
 
-    if (user && user.status === 'active') {
+    if (!user) {
+      throw new ApiError(404, 'This email address does not exist. Please enter a registered email address.');
+    }
+
+    if (user.status === 'deactivated') {
+      throw new ApiError(403, 'Your account has been deactivated. Please contact your administrator.');
+    }
+
+    if (user.status === 'active') {
       // Rate limit check: 1 request per 60 seconds
       if (user.passwordResetOtpExpiresAt) {
         const lastRequestedTime = new Date(user.passwordResetOtpExpiresAt).getTime() - 5 * 60 * 1000;
@@ -697,7 +730,7 @@ const requestPasswordResetOTP = async (req, res, next) => {
       }
 
       const rawOtp = crypto.randomInt(100000, 1000000).toString();
-      const otpHash = await bcrypt.hash(rawOtp, 10);
+      const otpHash = hashOtp(rawOtp);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
       // Store OTP directly on User record (invalidates previous OTP)
@@ -716,12 +749,12 @@ const requestPasswordResetOTP = async (req, res, next) => {
       });
     }
 
-    // Always return neutral response to prevent email enumeration
+    // Return success response indicating OTP has been sent
     res.status(200).json(
       new ApiResponse(
         200,
         {},
-        'If an account with that email exists, a 6-digit OTP has been sent to your email address.'
+        'A 6-digit OTP has been sent to your registered email address.'
       )
     );
   } catch (error) {
@@ -768,7 +801,7 @@ const verifyPasswordResetOTP = async (req, res, next) => {
       throw new ApiError(400, 'Invalid or expired OTP. Please request a new verification code.');
     }
 
-    const isMatch = await bcrypt.compare(cleanOtp, user.passwordResetOtpHash);
+    const isMatch = await compareOtp(cleanOtp, user.passwordResetOtpHash);
     if (!isMatch) {
       throw new ApiError(400, 'Incorrect OTP. Please check the code and try again.');
     }
@@ -822,7 +855,7 @@ const resetPasswordWithOTP = async (req, res, next) => {
       throw new ApiError(400, 'Invalid or expired OTP. Please request a new code.');
     }
 
-    const isMatch = await bcrypt.compare(cleanOtp, user.passwordResetOtpHash);
+    const isMatch = await compareOtp(cleanOtp, user.passwordResetOtpHash);
     if (!isMatch) {
       throw new ApiError(400, 'Incorrect OTP. Please check the code and try again.');
     }

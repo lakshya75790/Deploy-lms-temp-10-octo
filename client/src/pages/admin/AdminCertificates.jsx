@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import {
   getOrgCertificates,
@@ -11,10 +11,14 @@ import {
   deleteMedia
 } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import { ConfirmationModal } from '../../components/common/ConfirmationModal';
+import { Pagination } from '../../components/common/Pagination';
 import { useNotification } from '../../context/NotificationContext';
 import { validateImageFile } from '../../utils/fileValidation';
 import { useAuth } from '../../context/AuthContext';
 import { CertificateCanvas, exportCertificatePNG, exportCertificatePDF } from '../../components/common/CertificateCanvas';
+import { AdvancedCertificateEditor } from '../../components/admin/certificateDesigner/AdvancedCertificateEditor';
+import { TEMPLATE_PRESETS, BLANK_CANVAS_DESIGN } from '../../components/admin/certificateDesigner/designerConstants';
 import { formatDate } from '../../utils/formatters';
 import {
   Award,
@@ -38,7 +42,16 @@ import {
   Loader2,
   AlignLeft,
   AlignCenter,
-  AlignRight
+  AlignRight,
+  ArrowLeft,
+  ChevronRight,
+  ChevronLeft,
+  BookOpen,
+  Users,
+  Calendar,
+  Filter,
+  Building2,
+  User
 } from 'lucide-react';
 import { processTransparentSignature } from '../../utils/signatureProcessor';
 
@@ -51,8 +64,219 @@ export const AdminCertificates = () => {
 
   // Issued Certificates State
   const [certificates, setCertificates] = useState([]);
-  const [search, setSearch] = useState('');
   const [selectedCert, setSelectedCert] = useState(null);
+
+  // Level 1: Course Listing Filters & Pagination
+  const [courseSearch, setCourseSearch] = useState('');
+  const [courseCountFilter, setCourseCountFilter] = useState('all'); // 'all' | '1-5' | '6-15' | '16+'
+  const [courseSortBy, setCourseSortBy] = useState('most_certs'); // 'most_certs' | 'least_certs' | 'title_asc' | 'recent'
+  const [coursePage, setCoursePage] = useState(1);
+  const COURSES_PER_PAGE = 10;
+
+  // Level 2: Selected Course & Certificate Holders Filters & Pagination
+  const [selectedCourseId, setSelectedCourseId] = useState(null);
+  const [learnerSearch, setLearnerSearch] = useState('');
+  const [certIdSearch, setCertIdSearch] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all'); // 'all' | '7d' | '30d' | '90d' | '1y'
+  const [certPage, setCertPage] = useState(1);
+  const CERTS_PER_PAGE = 10;
+
+  // Group all issued certificates by course/training
+  const courseGroups = useMemo(() => {
+    if (!Array.isArray(certificates) || certificates.length === 0) return [];
+
+    const map = new Map();
+    certificates.forEach((cert) => {
+      const courseId = cert.training?.id || cert.trainingId || cert.training?.title || 'unknown';
+      const courseTitle = cert.training?.title || 'Untitled Course';
+
+      if (!map.has(courseId)) {
+        map.set(courseId, {
+          courseId,
+          courseTitle,
+          thumbnailUrl: cert.training?.thumbnailUrl || null,
+          categoryName: cert.training?.category?.name || cert.training?.categoryId?.name || null,
+          certificates: [],
+          lastIssuedDate: cert.completionDate
+        });
+      }
+
+      const group = map.get(courseId);
+      group.certificates.push(cert);
+      if (new Date(cert.completionDate) > new Date(group.lastIssuedDate)) {
+        group.lastIssuedDate = cert.completionDate;
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.certificates.length - a.certificates.length);
+  }, [certificates]);
+
+  // Filtered and sorted courses for Level 1 (Course Listing)
+  const filteredCourseGroups = useMemo(() => {
+    let result = [...courseGroups];
+
+    // Search by course / training title
+    if (courseSearch.trim()) {
+      const q = courseSearch.toLowerCase().trim();
+      result = result.filter(
+        (cg) =>
+          cg.courseTitle.toLowerCase().includes(q) ||
+          cg.categoryName?.toLowerCase().includes(q)
+      );
+    }
+
+    // Certificate count filter
+    if (courseCountFilter === '1-5') {
+      result = result.filter((cg) => cg.certificates.length >= 1 && cg.certificates.length <= 5);
+    } else if (courseCountFilter === '6-15') {
+      result = result.filter((cg) => cg.certificates.length >= 6 && cg.certificates.length <= 15);
+    } else if (courseCountFilter === '16+') {
+      result = result.filter((cg) => cg.certificates.length >= 16);
+    }
+
+    // Sort options
+    if (courseSortBy === 'most_certs') {
+      result.sort((a, b) => b.certificates.length - a.certificates.length);
+    } else if (courseSortBy === 'least_certs') {
+      result.sort((a, b) => a.certificates.length - b.certificates.length);
+    } else if (courseSortBy === 'title_asc') {
+      result.sort((a, b) => a.courseTitle.localeCompare(b.courseTitle));
+    } else if (courseSortBy === 'recent') {
+      result.sort((a, b) => new Date(b.lastIssuedDate) - new Date(a.lastIssuedDate));
+    }
+
+    return result;
+  }, [courseGroups, courseSearch, courseCountFilter, courseSortBy]);
+
+  const totalCoursePages = Math.max(1, Math.ceil(filteredCourseGroups.length / COURSES_PER_PAGE));
+  const paginatedCourseGroups = useMemo(() => {
+    const start = (coursePage - 1) * COURSES_PER_PAGE;
+    return filteredCourseGroups.slice(start, start + COURSES_PER_PAGE);
+  }, [filteredCourseGroups, coursePage]);
+
+  const hasCourseFilters = Boolean(
+    courseSearch.trim() || courseCountFilter !== 'all' || courseSortBy !== 'most_certs'
+  );
+
+  const handleResetCourseFilters = () => {
+    setCourseSearch('');
+    setCourseCountFilter('all');
+    setCourseSortBy('most_certs');
+    setCoursePage(1);
+  };
+
+  // Selected course group for Level 2 (Certificate Holders)
+  const selectedCourseGroup = useMemo(() => {
+    if (!selectedCourseId) return null;
+    return courseGroups.find((cg) => cg.courseId === selectedCourseId) || null;
+  }, [courseGroups, selectedCourseId]);
+
+  // Unique departments for the selected course
+  const courseDepartments = useMemo(() => {
+    if (!selectedCourseGroup) return [];
+    const depts = new Set();
+    selectedCourseGroup.certificates.forEach((c) => {
+      const d = c.employee?.department?.name;
+      if (d) depts.add(d);
+    });
+    return Array.from(depts).sort();
+  }, [selectedCourseGroup]);
+
+  // Filtered certificate holders for Level 2
+  const filteredCertificates = useMemo(() => {
+    if (!selectedCourseGroup) return [];
+    let list = [...selectedCourseGroup.certificates];
+
+    // Search by learner name / email
+    if (learnerSearch.trim()) {
+      const q = learnerSearch.toLowerCase().trim();
+      list = list.filter(
+        (c) =>
+          c.employee?.name?.toLowerCase().includes(q) ||
+          c.employee?.email?.toLowerCase().includes(q)
+      );
+    }
+
+    // Search by Certificate ID
+    if (certIdSearch.trim()) {
+      const q = certIdSearch.toLowerCase().trim();
+      list = list.filter((c) => c.certificateId?.toLowerCase().includes(q));
+    }
+
+    // Group / Department filter
+    if (selectedDepartment !== 'all') {
+      list = list.filter((c) => (c.employee?.department?.name || 'N/A') === selectedDepartment);
+    }
+
+    // Completion date filter
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      let cutoff = new Date();
+      if (dateFilter === '7d') cutoff.setDate(now.getDate() - 7);
+      else if (dateFilter === '30d') cutoff.setDate(now.getDate() - 30);
+      else if (dateFilter === '90d') cutoff.setDate(now.getDate() - 90);
+      else if (dateFilter === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+
+      list = list.filter((c) => new Date(c.completionDate) >= cutoff);
+    }
+
+    return list;
+  }, [selectedCourseGroup, learnerSearch, certIdSearch, selectedDepartment, dateFilter]);
+
+  const totalCertPages = Math.max(1, Math.ceil(filteredCertificates.length / CERTS_PER_PAGE));
+  const paginatedCertificates = useMemo(() => {
+    const start = (certPage - 1) * CERTS_PER_PAGE;
+    return filteredCertificates.slice(start, start + CERTS_PER_PAGE);
+  }, [filteredCertificates, certPage]);
+
+  const hasCertFilters = Boolean(
+    learnerSearch.trim() || certIdSearch.trim() || selectedDepartment !== 'all' || dateFilter !== 'all'
+  );
+
+  const handleResetCertFilters = () => {
+    setLearnerSearch('');
+    setCertIdSearch('');
+    setSelectedDepartment('all');
+    setDateFilter('all');
+    setCertPage(1);
+  };
+
+  const handleSelectCourse = (courseId) => {
+    setSelectedCourseId(courseId);
+    setLearnerSearch('');
+    setCertIdSearch('');
+    setSelectedDepartment('all');
+    setDateFilter('all');
+    setCertPage(1);
+  };
+
+  const handleBackToCourses = () => {
+    setSelectedCourseId(null);
+    setLearnerSearch('');
+    setCertIdSearch('');
+    setSelectedDepartment('all');
+    setDateFilter('all');
+    setCertPage(1);
+  };
+
+  const handleViewCert = (cert) => {
+    setSelectedCert(cert);
+  };
+
+  const handleDownloadPNG = (cert) => {
+    setSelectedCert(cert);
+    setTimeout(() => {
+      exportCertificatePNG(`admin_cert_${cert.id}`, `Certificate_${cert.certificateId}.png`);
+    }, 150);
+  };
+
+  const handleDownloadPDF = (cert) => {
+    setSelectedCert(cert);
+    setTimeout(() => {
+      exportCertificatePDF(`admin_cert_${cert.id}`, `Certificate_${cert.certificateId}.pdf`);
+    }, 150);
+  };
 
   // Template Designer State
   const [template, setTemplate] = useState({
@@ -70,6 +294,8 @@ export const AdminCertificates = () => {
     signaturePublicId: '',
     signatureName: ''
   });
+  const [designerMode, setDesignerMode] = useState('editor'); // 'select' | 'editor'
+  const [selectedTemplateForEditor, setSelectedTemplateForEditor] = useState(null);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingSignature, setUploadingSignature] = useState(false);
@@ -78,10 +304,20 @@ export const AdminCertificates = () => {
   const [backfillCount, setBackfillCount] = useState(0);
   const [runningBackfill, setRunningBackfill] = useState(false);
 
+  // Custom Confirmation Modal for Certificate Image Deletion
+  const [deleteImageModal, setDeleteImageModal] = useState({
+    isOpen: false,
+    imageType: null, // 'logo' | 'signature'
+    title: '',
+    message: '',
+    loading: false
+  });
+  const [showResetTemplateModal, setShowResetTemplateModal] = useState(false);
+
   const fetchCertificatesData = async () => {
     try {
       const [certRes, tplRes, backfillRes] = await Promise.all([
-        getOrgCertificates({ search }),
+        getOrgCertificates(),
         getCertificateTemplate(),
         getBackfillEligible()
       ]);
@@ -103,14 +339,6 @@ export const AdminCertificates = () => {
   useEffect(() => {
     fetchCertificatesData();
   }, []);
-
-  const handleSearchChange = (e) => {
-    const val = e.target.value;
-    setSearch(val);
-    getOrgCertificates({ search: val })
-      .then(res => setCertificates(res.data.data.certificates || []))
-      .catch(() => {});
-  };
 
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -152,18 +380,14 @@ export const AdminCertificates = () => {
     }
   };
 
-  const handleLogoDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    const target = template.logoPublicId || template.logoUrl;
-    try {
-      if (target) {
-        await deleteMedia(target, 'image');
-      }
-      setTemplate(prev => ({ ...prev, logoUrl: null, logoPublicId: null }));
-      addToast('success', 'File deleted successfully.');
-    } catch (err) {
-      addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
-    }
+  const handleLogoDelete = () => {
+    setDeleteImageModal({
+      isOpen: true,
+      imageType: 'logo',
+      title: 'Delete Organization Logo',
+      message: 'Are you sure you want to delete this certificate logo image? This action will remove the logo from the certificate template.',
+      loading: false
+    });
   };
 
   const handleSignatureUpload = async (e) => {
@@ -211,22 +435,48 @@ export const AdminCertificates = () => {
     }
   };
 
-  const handleSignatureDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return;
-    const target = template.signaturePublicId || template.signatureUrl;
+  const handleSignatureDelete = () => {
+    setDeleteImageModal({
+      isOpen: true,
+      imageType: 'signature',
+      title: 'Delete Signature Image',
+      message: 'Are you sure you want to delete this authorized signature image? This action will remove the signature from the certificate template.',
+      loading: false
+    });
+  };
+
+  const handleConfirmDeleteImage = async () => {
+    const isLogo = deleteImageModal.imageType === 'logo';
+    const target = isLogo
+      ? (template.logoPublicId || template.logoUrl)
+      : (template.signaturePublicId || template.signatureUrl);
+
+    setDeleteImageModal(prev => ({ ...prev, loading: true }));
     try {
       if (target) {
         await deleteMedia(target, 'image');
       }
-      setTemplate(prev => ({ ...prev, signatureUrl: null, signaturePublicId: null }));
-      addToast('success', 'File deleted successfully.');
+      if (isLogo) {
+        setTemplate(prev => ({ ...prev, logoUrl: null, logoPublicId: null }));
+      } else {
+        setTemplate(prev => ({ ...prev, signatureUrl: null, signaturePublicId: null }));
+      }
+      addToast('success', `${isLogo ? 'Organization logo' : 'Signature'} image deleted successfully.`);
+      setDeleteImageModal({ isOpen: false, imageType: null, title: '', message: '', loading: false });
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Unable to delete the file. Please try again.');
+      setDeleteImageModal(prev => ({ ...prev, loading: false }));
     }
   };
 
+  const handleCancelDeleteImage = () => {
+    if (deleteImageModal.loading) return;
+    setDeleteImageModal({ isOpen: false, imageType: null, title: '', message: '', loading: false });
+  };
+
   const handleSaveTemplate = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
+    if (savingTemplate) return;
     setSavingTemplate(true);
     try {
       const res = await updateCertificateTemplate(template);
@@ -239,13 +489,39 @@ export const AdminCertificates = () => {
     }
   };
 
-  const handleResetTemplate = async () => {
-    if (!window.confirm('Reset certificate template to default colors, layout, and clear uploaded assets?')) return;
+  const handleSaveCustomDesign = async (customDesign) => {
+    if (savingTemplate) return;
+    setSavingTemplate(true);
+    try {
+      const payload = {
+        ...template,
+        customDesign
+      };
+      const res = await updateCertificateTemplate(payload);
+      setTemplate(prev => ({
+        ...prev,
+        ...res.data.data.template,
+        customDesign
+      }));
+      addToast('success', 'Custom certificate design saved successfully!');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Failed to save certificate design');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleResetTemplate = () => {
+    setShowResetTemplateModal(true);
+  };
+
+  const handleConfirmResetTemplate = async () => {
     setSavingTemplate(true);
     try {
       const res = await resetCertificateTemplate();
       setTemplate(prev => ({ ...prev, ...res.data.data.template }));
       addToast('success', 'Template settings reset to default values.');
+      setShowResetTemplateModal(false);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to reset template');
     } finally {
@@ -283,7 +559,10 @@ export const AdminCertificates = () => {
         {/* Main Tab Navigation Controls */}
         <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
           <button
-            onClick={() => setActiveTab('issued')}
+            onClick={() => {
+              setActiveTab('issued');
+              setSelectedCourseId(null);
+            }}
             className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
               activeTab === 'issued'
                 ? 'bg-emerald-600 text-white shadow-xs'
@@ -291,7 +570,7 @@ export const AdminCertificates = () => {
             }`}
           >
             <Award className="w-4 h-4" />
-            <span>Issued Certificates ({certificates.length})</span>
+            <span>Course Certificates ({courseGroups.length})</span>
           </button>
 
           <button
@@ -335,521 +614,608 @@ export const AdminCertificates = () => {
         </div>
       )}
 
-      {/* TAB 1: ISSUED CERTIFICATES TABLE */}
+      {/* TAB 1: COURSE-WISE CERTIFICATES (TWO LEVELS: LEVEL 1 COURSE CARDS, LEVEL 2 CERTIFICATE HOLDERS) */}
       {activeTab === 'issued' && (
-        <div className="space-y-4">
-          {/* Search Bar */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-3">
-            <Search className="w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={handleSearchChange}
-              placeholder="Search by Learner name, Training title, or Certificate ID..."
-              className="w-full bg-transparent text-xs text-slate-900 outline-none"
-            />
-            {search && (
-              <button onClick={() => { setSearch(''); getOrgCertificates().then(res => setCertificates(res.data.data.certificates || [])); }} className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer">
-                Clear
-              </button>
-            )}
-          </div>
+        <>
+          {/* LEVEL 1: COURSE LISTING (MAIN VIEW) */}
+          {!selectedCourseGroup ? (
+            <div className="space-y-4">
+              {/* Level 1: Filter Toolbar */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                {/* Search by Course/Training Title */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50/60 focus-within:bg-white focus-within:border-emerald-500 transition-colors">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={courseSearch}
+                      onChange={(e) => {
+                        setCourseSearch(e.target.value);
+                        setCoursePage(1);
+                      }}
+                      placeholder="Search courses by title..."
+                      className="w-full bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+                    />
+                    {courseSearch && (
+                      <button
+                        onClick={() => {
+                          setCourseSearch('');
+                          setCoursePage(1);
+                        }}
+                        className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+                        title="Clear course search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-          {/* Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold tracking-wider text-[11px]">
-                    <th className="p-4">Certificate ID</th>
-                    <th className="p-4">Learner</th>
-                    <th className="p-4">Group</th>
-                    <th className="p-4">Training Title</th>
-                    <th className="p-4">Completion Date</th>
-                    <th className="p-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {certificates.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="p-8 text-center text-slate-400">
-                        No organization certificates found.
-                      </td>
-                    </tr>
-                  ) : (
-                    certificates.map((cert) => (
-                      <tr key={cert.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-4 font-mono font-bold text-emerald-700">
-                          {cert.certificateId}
-                        </td>
-                        <td className="p-4 font-bold text-slate-900">
-                          {cert.employee?.name}
-                        </td>
-                        <td className="p-4 text-slate-500">
-                          {cert.employee?.department?.name || 'N/A'}
-                        </td>
-                        <td className="p-4 font-semibold text-slate-800">
-                          {cert.training?.title}
-                        </td>
-                        <td className="p-4 text-slate-500 font-mono">
-                          {formatDate(cert.completionDate)}
-                        </td>
-                        <td className="p-4 text-right space-x-2">
-                          <button
-                            onClick={() => setSelectedCert(cert)}
-                            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer inline-flex items-center"
-                            title="View Certificate"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedCert(cert);
-                              setTimeout(() => {
-                                exportCertificatePNG(`admin_cert_${cert.id}`, `Certificate_${cert.certificateId}.png`);
-                              }, 150);
-                            }}
-                            className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer inline-flex items-center border border-emerald-200"
-                            title="Download PNG"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedCert(cert);
-                              setTimeout(() => {
-                                exportCertificatePDF(`admin_cert_${cert.id}`, `Certificate_${cert.certificateId}.pdf`);
-                              }, 150);
-                            }}
-                            className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors cursor-pointer inline-flex items-center border border-red-200"
-                            title="Download PDF"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                {/* Filter Controls */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Certificate Count Filter */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">Certificates:</span>
+                    <select
+                      value={courseCountFilter}
+                      onChange={(e) => {
+                        setCourseCountFilter(e.target.value);
+                        setCoursePage(1);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 outline-none hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <option value="all">All Counts</option>
+                      <option value="1-5">1 - 5 Issued</option>
+                      <option value="6-15">6 - 15 Issued</option>
+                      <option value="16+">16+ Issued</option>
+                    </select>
+                  </div>
+
+                  {/* Sort Dropdown */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">Sort:</span>
+                    <select
+                      value={courseSortBy}
+                      onChange={(e) => {
+                        setCourseSortBy(e.target.value);
+                        setCoursePage(1);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 outline-none hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <option value="most_certs">Most Certificates</option>
+                      <option value="least_certs">Least Certificates</option>
+                      <option value="title_asc">Course Title (A-Z)</option>
+                      <option value="recent">Recently Issued</option>
+                    </select>
+                  </div>
+
+                  {/* Reset Filters */}
+                  {hasCourseFilters && (
+                    <button
+                      onClick={handleResetCourseFilters}
+                      className="px-3 py-2 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                      title="Reset all course filters"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
                   )}
-                </tbody>
-              </table>
+                </div>
+              </div>
+
+              {/* Summary Counter Bar */}
+              <div className="px-1 flex items-center justify-between text-xs text-slate-500">
+                <div>
+                  Showing <span className="font-bold text-slate-900">{filteredCourseGroups.length}</span> {filteredCourseGroups.length === 1 ? 'course' : 'courses'} with issued certificates
+                  {hasCourseFilters && <span className="text-emerald-700 ml-1.5 font-semibold">(filtered)</span>}
+                </div>
+                <div className="font-medium text-slate-400 hidden sm:block">
+                  Total <span className="font-bold text-slate-700">{certificates.length}</span> certificates across organization
+                </div>
+              </div>
+
+              {/* Compact Course Cards Grid (No Thumbnails) */}
+              {filteredCourseGroups.length === 0 ? (
+                <div className="p-12 rounded-2xl bg-white border border-slate-200 shadow-xs text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
+                    <Award className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {hasCourseFilters ? 'No Courses Match Your Filters' : 'No Certificates Issued Yet'}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    {hasCourseFilters
+                      ? 'No courses found matching your current search and filter criteria. Try adjusting your filters.'
+                      : 'Certificates will automatically appear here grouped by course once learners complete their training assignments.'}
+                  </p>
+                  {hasCourseFilters && (
+                    <button
+                      onClick={handleResetCourseFilters}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors cursor-pointer"
+                    >
+                      Reset Course Filters
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {paginatedCourseGroups.map((group) => (
+                    <div
+                      key={group.courseId}
+                      onClick={() => handleSelectCourse(group.courseId)}
+                      className="group bg-white rounded-xl border border-slate-200 hover:border-emerald-400 shadow-2xs hover:shadow-md transition-all duration-200 cursor-pointer p-4 flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Top Row: Mini Icon + Certificate Count Badge */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                            <Award className="w-4 h-4" />
+                          </div>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            {group.certificates.length} {group.certificates.length === 1 ? 'Certificate' : 'Certificates'}
+                          </span>
+                        </div>
+
+                        {/* Course Category & Title */}
+                        <div className="mt-3">
+                          {group.categoryName && (
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block truncate mb-1">
+                              {group.categoryName}
+                            </span>
+                          )}
+                          <h3
+                            className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors line-clamp-2 leading-snug"
+                            title={group.courseTitle}
+                          >
+                            {group.courseTitle}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Card Footer: Metadata & View Link */}
+                      <div className="pt-3 border-t border-slate-100 mt-3 flex items-center justify-between text-xs font-semibold text-emerald-700 group-hover:text-emerald-800">
+                        <span className="text-[11px] text-slate-400 font-normal truncate max-w-[130px]">
+                          {group.lastIssuedDate ? `Latest: ${formatDate(group.lastIssuedDate)}` : `${group.certificates.length} Issued`}
+                        </span>
+                        <span className="inline-flex items-center space-x-1 shrink-0">
+                          <span>View</span>
+                          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Level 1: Pagination */}
+              <Pagination
+                currentPage={coursePage}
+                totalItems={filteredCourseGroups.length}
+                pageSize={COURSES_PER_PAGE}
+                onPageChange={setCoursePage}
+                itemLabel="courses"
+                className="rounded-2xl border border-slate-200 bg-white"
+              />
             </div>
-          </div>
-        </div>
+          ) : (
+            /* LEVEL 2: CERTIFICATE HOLDERS TABLE FOR SELECTED COURSE */
+            <div className="space-y-4 animate-fade-in">
+              {/* Back Navigation & Course Header Bar */}
+              <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center space-x-3 min-w-0">
+                  <button
+                    onClick={handleBackToCourses}
+                    className="p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer shrink-0"
+                    title="Back to Course Listing"
+                    aria-label="Back to Course Listing"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-2 text-xs text-slate-500 mb-0.5">
+                      <span
+                        onClick={handleBackToCourses}
+                        className="hover:text-emerald-700 cursor-pointer font-medium"
+                      >
+                        All Courses
+                      </span>
+                      <span>&rsaquo;</span>
+                      <span className="font-semibold text-slate-700 truncate max-w-xs sm:max-w-md">
+                        {selectedCourseGroup.courseTitle}
+                      </span>
+                    </div>
+                    <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight font-heading truncate">
+                      {selectedCourseGroup.courseTitle}
+                    </h2>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0 self-start md:self-auto">
+                  <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shadow-2xs">
+                    <Award className="w-4 h-4 mr-1.5" />
+                    {selectedCourseGroup.certificates.length} Total {selectedCourseGroup.certificates.length === 1 ? 'Certificate' : 'Certificates'}
+                  </span>
+                  <button
+                    onClick={handleBackToCourses}
+                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer inline-flex items-center"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
+                    Back to Courses
+                  </button>
+                </div>
+              </div>
+
+              {/* Level 2: Filter Toolbar (Learner, Certificate ID, Group, Date) */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                {/* Search Inputs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1 min-w-0">
+                  {/* Learner Name Search */}
+                  <div className="flex items-center space-x-2.5 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/60 focus-within:bg-white focus-within:border-emerald-500 transition-colors">
+                    <User className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={learnerSearch}
+                      onChange={(e) => {
+                        setLearnerSearch(e.target.value);
+                        setCertPage(1);
+                      }}
+                      placeholder="Search learner name or email..."
+                      className="w-full bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+                    />
+                    {learnerSearch && (
+                      <button
+                        onClick={() => {
+                          setLearnerSearch('');
+                          setCertPage(1);
+                        }}
+                        className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title="Clear learner search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Certificate ID Search */}
+                  <div className="flex items-center space-x-2.5 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/60 focus-within:bg-white focus-within:border-emerald-500 transition-colors">
+                    <Award className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={certIdSearch}
+                      onChange={(e) => {
+                        setCertIdSearch(e.target.value);
+                        setCertPage(1);
+                      }}
+                      placeholder="Search Certificate ID..."
+                      className="w-full bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 font-mono"
+                    />
+                    {certIdSearch && (
+                      <button
+                        onClick={() => {
+                          setCertIdSearch('');
+                          setCertPage(1);
+                        }}
+                        className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title="Clear certificate ID search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dropdown Filters */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Group / Department Filter */}
+                  <div className="flex items-center space-x-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-slate-400 hidden sm:inline" />
+                    <select
+                      value={selectedDepartment}
+                      onChange={(e) => {
+                        setSelectedDepartment(e.target.value);
+                        setCertPage(1);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 outline-none hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <option value="all">All Groups</option>
+                      {courseDepartments.map((dept) => (
+                        <option key={dept} value={dept}>
+                          {dept}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Completion Date Filter */}
+                  <div className="flex items-center space-x-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 hidden sm:inline" />
+                    <select
+                      value={dateFilter}
+                      onChange={(e) => {
+                        setDateFilter(e.target.value);
+                        setCertPage(1);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 outline-none hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <option value="all">All Dates</option>
+                      <option value="7d">Last 7 Days</option>
+                      <option value="30d">Last 30 Days</option>
+                      <option value="90d">Last 90 Days</option>
+                      <option value="1y">Last 1 Year</option>
+                    </select>
+                  </div>
+
+                  {/* Reset Filters */}
+                  {hasCertFilters && (
+                    <button
+                      onClick={handleResetCertFilters}
+                      className="px-3 py-2 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                      title="Reset all filters for this course"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold tracking-wider text-[11px]">
+                        <th className="p-4">Certificate ID</th>
+                        <th className="p-4">Learner</th>
+                        <th className="p-4">Group</th>
+                        <th className="p-4">Completion Date</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {filteredCertificates.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="p-8 text-center text-slate-400">
+                            {hasCertFilters ? (
+                              <div className="space-y-2">
+                                <p>No certificates match your active search and filter criteria.</p>
+                                <button
+                                  onClick={handleResetCertFilters}
+                                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+                                >
+                                  Clear Filters
+                                </button>
+                              </div>
+                            ) : (
+                              'No certificates issued for this course yet.'
+                            )}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedCertificates.map((cert) => (
+                          <tr key={cert.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-4 font-mono font-bold text-emerald-700">
+                              {cert.certificateId}
+                            </td>
+                            <td className="p-4">
+                              <div className="font-bold text-slate-900">{cert.employee?.name || 'Unknown Learner'}</div>
+                              {cert.employee?.email && (
+                                <div className="text-[11px] text-slate-400 font-normal">{cert.employee.email}</div>
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-500">
+                              {cert.employee?.department?.name || 'N/A'}
+                            </td>
+                            <td className="p-4 text-slate-500 font-mono">
+                              {formatDate(cert.completionDate)}
+                            </td>
+                            <td className="p-4 text-right space-x-2">
+                              <button
+                                onClick={() => handleViewCert(cert)}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer inline-flex items-center"
+                                title="View Certificate"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDownloadPNG(cert)}
+                                className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer inline-flex items-center border border-emerald-200"
+                                title="Download PNG"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDownloadPDF(cert)}
+                                className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors cursor-pointer inline-flex items-center border border-red-200"
+                                title="Download PDF"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Level 2: Pagination */}
+              <Pagination
+                currentPage={certPage}
+                totalItems={filteredCertificates.length}
+                pageSize={CERTS_PER_PAGE}
+                onPageChange={setCertPage}
+                itemLabel="certificates"
+                className="rounded-2xl border border-slate-200 bg-white"
+              />
+            </div>
+          )}
+        </>
       )}
 
-      {/* TAB 2: CERTIFICATE DESIGNER */}
+      {/* TAB 2: CERTIFICATE DESIGNER (ADVANCED CANVA-LIKE EDITOR) */}
       {activeTab === 'designer' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Settings Form */}
-          <form onSubmit={handleSaveTemplate} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5 flex flex-col justify-between">
-            <div className="space-y-5">
-              <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
+        <div className="space-y-6 animate-fade-in">
+          {designerMode === 'select' ? (
+            /* CREATION OPTIONS VIEW (OPTION A & OPTION B) */
+            <div className="space-y-6">
+              {/* Studio Header */}
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center">
-                    <Palette className="w-4.5 h-4.5 mr-2 text-emerald-600" /> Certificate Designer
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Customize assets, signatures, colors, borders, and font typography.
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                      Canva-Like Editor
+                    </span>
+                    <span className="text-xs text-slate-400">• Full Element-Level Creative Freedom</span>
+                  </div>
+                  <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
+                    Certificate Design Studio
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Select a professionally designed template or start with a clean blank canvas to design your custom certificate.
                   </p>
                 </div>
-              </div>
-
-              {/* 2 SUB-TABS */}
-              <div className="grid grid-cols-2 p-1 bg-slate-100/80 rounded-xl border border-slate-200 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setDesignerSubTab('assets')}
-                  className={`py-2 px-3 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
-                    designerSubTab === 'assets'
-                      ? 'bg-white text-emerald-700 shadow-xs border border-slate-200/80 font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>Assets & Signature</span>
-                </button>
 
                 <button
                   type="button"
-                  onClick={() => setDesignerSubTab('styling')}
-                  className={`py-2 px-3 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
-                    designerSubTab === 'styling'
-                      ? 'bg-white text-emerald-700 shadow-xs border border-slate-200/80 font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  onClick={() => setDesignerMode('editor')}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 self-start md:self-auto"
                 >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>Template Styling</span>
+                  <Palette className="w-4 h-4 text-emerald-400" />
+                  <span>Open Active Editor</span>
                 </button>
               </div>
 
-              {/* SUB-TAB 1: ASSETS & SIGNATURE */}
-              {designerSubTab === 'assets' && (
-                <div className="space-y-5 animate-fade-in">
-                  {/* Organization Logo Upload & Placement Controls */}
-                  <div className="space-y-3">
-                    <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
-                      <span className="flex items-center"><ImageIcon className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> Organization Logo</span>
-                      {template.logoUrl && <span className="text-[11px] text-emerald-600 font-semibold flex items-center"><CheckCircle2 className="w-3 h-3 mr-1" /> Active</span>}
-                    </label>
+              {/* OPTION A: CUSTOM CREATION FROM SCRATCH */}
+              <div className="p-6 rounded-2xl border-2 border-dashed border-emerald-500/80 bg-gradient-to-r from-emerald-50/60 via-white to-emerald-50/30 dark:from-emerald-950/20 dark:via-slate-900 dark:to-emerald-950/10 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white">
+                      Option A
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                      Create Custom Certificate from Scratch
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
+                    Start with a 100% clean blank canvas. Add custom headings, dynamic recipient placeholders (<code>&#123;&#123;learnerName&#125;&#125;</code>, <code>&#123;&#123;courseName&#125;&#125;</code>, <code>&#123;&#123;adminName&#125;&#125;</code>), shapes, decorative borders, logos, and signatures with complete creative freedom.
+                  </p>
+                </div>
 
-                    {template.logoUrl ? (
-                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex flex-col gap-3">
-                        <div className="flex items-center space-x-3 min-w-0">
-                          <div
-                            className="w-14 h-14 rounded-lg border border-slate-200 dark:border-slate-700 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs"
-                            style={{ backgroundColor: '#ffffff' }}
-                          >
-                            <img src={template.logoUrl} alt="Org Logo" className="max-h-full max-w-full object-contain" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">Organization Logo</p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug break-words">
-                              Renders on upper certificate header
-                            </p>
-                          </div>
-                        </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTemplateForEditor(BLANK_CANVAS_DESIGN);
+                    setDesignerMode('editor');
+                  }}
+                  className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Start Blank Canvas</span>
+                </button>
+              </div>
 
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
-                          <label className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center">
-                            <Upload className="w-3.5 h-3.5 mr-1 shrink-0" /> Replace
-                            <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={handleLogoDelete}
-                            className="flex-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                            title="Delete Logo"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1 shrink-0" /> Delete Image
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center text-center bg-slate-50/50 hover:bg-emerald-50/30 transition-all cursor-pointer group">
-                        {uploadingLogo ? (
-                          <Loader2 className="w-6 h-6 text-emerald-600 animate-spin my-1" />
-                        ) : (
-                          <Upload className="w-6 h-6 text-slate-400 group-hover:text-emerald-600 transition-colors my-1" />
-                        )}
-                        <span className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700 mt-1">
-                          {uploadingLogo ? 'Uploading Logo...' : 'Click to Upload Organization Logo'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, SVG or WebP (Max 5MB)</span>
-                        <input type="file" accept="image/*" onChange={handleLogoUpload} disabled={uploadingLogo} className="hidden" />
-                      </label>
-                    )}
-
-                    {/* Logo Position Controls (Left / Center / Right) & Logo Width */}
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1.5">
-                          Logo Alignment / Position
-                        </label>
-                        <div className="grid grid-cols-3 gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
-                          <button
-                            type="button"
-                            onClick={() => setTemplate({ ...template, logoPosition: 'left' })}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1 ${
-                              (template.logoPosition || 'center') === 'left'
-                                ? 'bg-emerald-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <AlignLeft className="w-3.5 h-3.5" />
-                            <span>Left</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setTemplate({ ...template, logoPosition: 'center' })}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1 ${
-                              (template.logoPosition || 'center') === 'center'
-                                ? 'bg-emerald-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <AlignCenter className="w-3.5 h-3.5" />
-                            <span>Center</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setTemplate({ ...template, logoPosition: 'right' })}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center space-x-1 ${
-                              (template.logoPosition || 'center') === 'right'
-                                ? 'bg-emerald-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <AlignRight className="w-3.5 h-3.5" />
-                            <span>Right</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 mb-1">
-                          <span>Logo Width</span>
-                          <span className="font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">{template.logoWidth || 130} px</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="60"
-                          max="250"
-                          step="5"
-                          value={template.logoWidth || 130}
-                          onChange={(e) => setTemplate({ ...template, logoWidth: Number(e.target.value) })}
-                          className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
-                        />
-                      </div>
+              {/* OPTION B: USE PRE-MADE TEMPLATES */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-600 text-white shrink-0 whitespace-nowrap shadow-2xs">
+                        Option B
+                      </span>
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-wide shrink-0 whitespace-nowrap">
+                        OPTION B – PRE-MADE TEMPLATES
+                      </h3>
                     </div>
-                  </div>
-
-                  {/* Signature Image Upload */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                      <span className="flex items-center"><FileSignature className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> Authorized Signature Image</span>
-                      {template.signatureUrl && <span className="text-[11px] text-emerald-600 font-semibold flex items-center"><CheckCircle2 className="w-3 h-3 mr-1" /> Active</span>}
-                    </label>
-
-                    {template.signatureUrl ? (
-                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex flex-col gap-3">
-                        <div className="flex items-center space-x-3 min-w-0">
-                          {/* Dedicated light-neutral preview container for signature image */}
-                          <div
-                            className="signature-preview-surface w-20 h-12 rounded-lg border border-slate-300 dark:border-slate-500 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs"
-                            style={{
-                              backgroundColor: '#ffffff',
-                              backgroundImage: 'radial-gradient(#cbd5e1 1.2px, transparent 1.2px)',
-                              backgroundSize: '8px 8px'
-                            }}
-                            title="Signature Preview (Transparent Background)"
-                          >
-                            <img src={template.signatureUrl} alt="Signature" className="max-h-full max-w-full object-contain" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">Signature Image</p>
-                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 leading-snug break-words">
-                              Automatic background transparency applied
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
-                          <label className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center">
-                            <Upload className="w-3.5 h-3.5 mr-1 shrink-0" /> Replace
-                            <input type="file" accept="image/*" onChange={handleSignatureUpload} className="hidden" />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={handleSignatureDelete}
-                            className="flex-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                            title="Delete Signature"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1 shrink-0" /> Delete Image
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center text-center bg-slate-50/50 hover:bg-emerald-50/30 transition-all cursor-pointer group">
-                        {uploadingSignature ? (
-                          <Loader2 className="w-6 h-6 text-emerald-600 animate-spin my-1" />
-                        ) : (
-                          <Upload className="w-6 h-6 text-slate-400 group-hover:text-emerald-600 transition-colors my-1" />
-                        )}
-                        <span className="text-xs font-semibold text-slate-700 group-hover:text-emerald-700 mt-1">
-                          {uploadingSignature ? 'Processing Transparency...' : 'Click to Upload Signature Image'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">Paper background automatically removed (white, colored & patterned)</span>
-                        <input type="file" accept="image/*" onChange={handleSignatureUpload} disabled={uploadingSignature} className="hidden" />
-                      </label>
-                    )}
-                  </div>
-
-                  {/* Signature Name Field */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Signature Name
-                    </label>
-                    <p className="text-[11px] text-slate-500 mb-1.5">
-                      The entered name will render strictly underneath the signature line in the footer.
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Select any existing template to open it in the advanced editor. Every element is freely movable, resizable, and editable.
                     </p>
-                    <input
-                      type="text"
-                      value={template.signatureName || ''}
-                      onChange={(e) => setTemplate({ ...template, signatureName: e.target.value })}
-                      placeholder="e.g. Lakshya Joshi"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:border-emerald-600 outline-none"
-                    />
                   </div>
                 </div>
-              )}
 
-              {/* SUB-TAB 2: TEMPLATE STYLING */}
-              {designerSubTab === 'styling' && (
-                <div className="space-y-5 animate-fade-in">
-                  {/* Title */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Certificate Heading Title
-                    </label>
-                    <input
-                      type="text"
-                      value={template.title}
-                      onChange={(e) => setTemplate({ ...template, title: e.target.value })}
-                      required
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:border-emerald-600 outline-none"
-                    />
-                  </div>
-
-                  {/* Primary Color */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Primary Brand Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        value={template.primaryColor || '#1E3A8A'}
-                        onChange={(e) => setTemplate({ ...template, primaryColor: e.target.value })}
-                        className="w-9 h-9 rounded-xl border-none cursor-pointer bg-transparent"
-                      />
-                      <input
-                        type="text"
-                        value={template.primaryColor || '#1E3A8A'}
-                        onChange={(e) => setTemplate({ ...template, primaryColor: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Accent Color */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Accent Line / Gold Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        value={template.accentColor || '#D97706'}
-                        onChange={(e) => setTemplate({ ...template, accentColor: e.target.value })}
-                        className="w-9 h-9 rounded-xl border-none cursor-pointer bg-transparent"
-                      />
-                      <input
-                        type="text"
-                        value={template.accentColor || '#D97706'}
-                        onChange={(e) => setTemplate({ ...template, accentColor: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Border Style */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Frame Border Style
-                    </label>
-                    <select
-                      value={template.borderStyle || 'classic_gold'}
-                      onChange={(e) => setTemplate({ ...template, borderStyle: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 outline-none"
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {TEMPLATE_PRESETS.map((tmpl) => (
+                    <div
+                      key={tmpl.id}
+                      className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4 group"
                     >
-                      <option value="classic_gold">Classic Gold Frame</option>
-                      <option value="modern_slate">Modern Slate Dashed</option>
-                      <option value="minimal_navy">Minimalist Navy Bars</option>
-                      <option value="double_emerald">Double Rounded Frame</option>
-                      <option value="single_classic">Single Classic Border</option>
-                      <option value="double_classic">Double Classic Border</option>
-                      <option value="rounded_border">Rounded Border</option>
-                      <option value="elegant_inner">Elegant Inner Border</option>
-                      <option value="minimal_border">Minimal Border</option>
-                      <option value="decorative_corner">Decorative Corner Border</option>
-                      <option value="formal_academic">Formal Academic Border</option>
-                    </select>
-                  </div>
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {tmpl.category}
+                          </span>
+                          <div className="flex items-center space-x-1.5">
+                            {tmpl.previewColors.map((color, i) => (
+                              <span
+                                key={i}
+                                className="w-3 h-3 rounded-full border border-black/10 inline-block"
+                                style={{ backgroundColor: color }}
+                              />
+                            ))}
+                          </div>
+                        </div>
 
-                  {/* Font Family */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Typography Font Family
-                    </label>
-                    <select
-                      value={template.fontFamily || 'Inter'}
-                      onChange={(e) => setTemplate({ ...template, fontFamily: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 outline-none"
-                    >
-                      <option value="Inter">Inter (Clean Modern)</option>
-                      <option value="Georgia, serif">Georgia (Classic Serif)</option>
-                      <option value="Roboto, sans-serif">Roboto (Corporate Sans)</option>
-                      <option value="Playfair Display, serif">Playfair (Elegant Display)</option>
-                    </select>
-                  </div>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 transition-colors">
+                          {tmpl.name}
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                          {tmpl.description}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTemplateForEditor(tmpl.design);
+                          setDesignerMode('editor');
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-200 hover:text-emerald-700 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Palette className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Customize in Advanced Editor</span>
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              )}
-
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 space-y-1 mt-4">
-                <p className="font-bold flex items-center">
-                  <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Immutability Guarantee:
-                </p>
-                <p className="opacity-90">
-                  Updating template settings will apply to future certificates. Already issued certificates retain their frozen snapshot.
-                </p>
               </div>
             </div>
+          ) : (
+            /* ADVANCED CANVA-LIKE EDITOR */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <button
+                  type="button"
+                  onClick={() => setDesignerMode('select')}
+                  className="text-xs font-bold text-slate-600 hover:text-emerald-600 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Template Options (Option A & B)</span>
+                </button>
+                <span className="text-[11px] font-medium text-slate-400">
+                  Tip: Use Ctrl+Z to undo, Ctrl+Y to redo, and click canvas elements to customize.
+                </span>
+              </div>
 
-            {/* Submit / Reset Actions */}
-            <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-3 mt-4">
-              <button
-                type="button"
-                onClick={handleResetTemplate}
-                disabled={savingTemplate}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors cursor-pointer flex items-center"
-              >
-                <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset
-              </button>
-
-              <button
-                type="submit"
-                disabled={savingTemplate}
-                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer flex items-center"
-              >
-                <Save className="w-3.5 h-3.5 mr-1.5" /> {savingTemplate ? 'Saving...' : 'Save Template'}
-              </button>
-            </div>
-          </form>
-
-          {/* LIVE PREVIEW CANVAS */}
-          <div className="lg:col-span-2 space-y-3">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                Live Certificate Preview (Sample Data)
-              </h3>
-              <span className="text-[11px] text-emerald-600 font-bold flex items-center">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-                Real-time Rendering
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <CertificateCanvas
-                templateSettings={template}
+              <AdvancedCertificateEditor
+                initialDesign={selectedTemplateForEditor || template.customDesign}
+                initialTemplateSettings={template}
+                onSaveDesign={handleSaveCustomDesign}
+                saving={savingTemplate}
                 sampleData={{
                   organizationName: user?.organization?.name || template?.organization?.name || 'Enterprise Organization',
                   employeeName: 'Sarah Jenkins',
-                  trainingTitle: 'Enterprise Cloud Architecture & Compliance',
-                  certificateId: 'CERT-2026-SAMPLE',
-                  completionDate: new Date(),
+                  trainingTitle: 'Advanced Cloud Architecture & Security Mastery',
+                  certificateId: 'CERT-2026-A8F3B9',
+                  completionDate: 'March 15, 2026',
+                  adminName: user?.name || template.signatureName || 'Organization Administrator',
+                  instructorName: user?.name || template.signatureName || 'Organization Administrator',
                   logoUrl: template.logoUrl,
-                  logoPosition: template.logoPosition,
-                  logoWidth: template.logoWidth,
-                  signatureUrl: template.signatureUrl,
-                  signatureName: template.signatureName
+                  signatureUrl: template.signatureUrl
                 }}
-                elementId="template_preview_canvas"
               />
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -857,7 +1223,7 @@ export const AdminCertificates = () => {
       {selectedCert && ReactDOM.createPortal(
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-md animate-fade-in overflow-y-auto"
-          onClick={() => setSelectedCert(null)}
+          onClick={(e) => e.stopPropagation()}
         >
           <div
             className="relative w-full max-w-6xl h-[84vh] sm:h-[88vh] max-h-[820px] bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col shadow-2xl overflow-hidden my-auto shrink-0"
@@ -875,6 +1241,22 @@ export const AdminCertificates = () => {
                 </h2>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  onClick={() => exportCertificatePNG(`admin_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.png`)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold border border-emerald-200 transition-colors cursor-pointer inline-flex items-center space-x-1"
+                  title="Download as PNG"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">PNG</span>
+                </button>
+                <button
+                  onClick={() => exportCertificatePDF(`admin_cert_${selectedCert.id}`, `Certificate_${selectedCert.certificateId}.pdf`)}
+                  className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold border border-red-200 transition-colors cursor-pointer inline-flex items-center space-x-1"
+                  title="Download as PDF"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">PDF</span>
+                </button>
                 <button
                   onClick={() => setSelectedCert(null)}
                   className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
@@ -896,6 +1278,38 @@ export const AdminCertificates = () => {
         </div>,
         document.body
       )}
+
+      {/* Confirmation Modal for Certificate Image Deletion */}
+      <ConfirmationModal
+        isOpen={deleteImageModal.isOpen}
+        onClose={handleCancelDeleteImage}
+        onConfirm={handleConfirmDeleteImage}
+        title={deleteImageModal.title}
+        message={deleteImageModal.message}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        loading={deleteImageModal.loading}
+        closeOnBackdropClick={false}
+        closeOnEscape={false}
+        showCloseButton={false}
+      />
+
+      {/* Confirmation Modal for Resetting Certificate Template */}
+      <ConfirmationModal
+        isOpen={showResetTemplateModal}
+        onClose={() => !savingTemplate && setShowResetTemplateModal(false)}
+        onConfirm={handleConfirmResetTemplate}
+        title="Reset Certificate Template"
+        message="Are you sure you want to reset the certificate template to default colors, layout, and clear uploaded assets?"
+        confirmText="Reset Template"
+        cancelText="Cancel"
+        variant="danger"
+        loading={savingTemplate}
+        closeOnBackdropClick={false}
+        closeOnEscape={false}
+        showCloseButton={false}
+      />
     </div>
   );
 };

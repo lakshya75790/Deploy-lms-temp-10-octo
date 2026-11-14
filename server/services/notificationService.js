@@ -211,9 +211,33 @@ const sendAdminNotification = async (organizationId, type, title, message, relat
   }
 };
 
+/**
+ * Automatically delete notifications older than 30 days
+ */
+const deleteOldNotifications = async () => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const result = await prisma.notification.deleteMany({
+      where: {
+        createdAt: {
+          lt: thirtyDaysAgo
+        }
+      }
+    });
+    if (result.count > 0) {
+      console.log(`[Notification Cleanup] Deleted ${result.count} notification(s) older than 30 days.`);
+    }
+    return result.count;
+  } catch (error) {
+    console.error('Error deleting notifications older than 30 days:', error);
+    return 0;
+  }
+};
+
 module.exports = {
   sendUserNotification,
   sendInstructorNotification,
   sendAdminNotification,
-  formatNotification
+  formatNotification,
+  deleteOldNotifications
 };

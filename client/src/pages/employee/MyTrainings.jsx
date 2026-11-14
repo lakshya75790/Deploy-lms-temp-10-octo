@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMyAssignments } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
+import { Pagination } from '../../components/common/Pagination';
 import { formatDate } from '../../utils/formatters';
 import { GraduationCap, Play, Lock, CheckCircle2, Clock, Sparkles, Search, X } from 'lucide-react';
 
@@ -12,6 +13,8 @@ export const MyTrainings = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // 'all' | 'in_progress' | 'completed' | 'overdue'
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     getMyAssignments()
@@ -41,6 +44,15 @@ export const MyTrainings = () => {
     const sectionMatch = Array.isArray(t.sections) && t.sections.some(s => (s.title || '').toLowerCase().includes(term));
     return titleMatch || descMatch || catMatch || sectionMatch;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filter, assignments.length]);
+
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage, pageSize]);
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-12">
@@ -147,9 +159,10 @@ export const MyTrainings = () => {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((a) => {
-            const t = a.trainingId;
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginated.map((a) => {
+              const t = a.trainingId;
             if (!t) return null;
 
             const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && a.status !== 'Completed');
@@ -266,6 +279,16 @@ export const MyTrainings = () => {
               </div>
             );
           })}
+          </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filtered.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="courses"
+            className="rounded-2xl border border-slate-200 bg-white"
+          />
         </div>
       )}
     </div>

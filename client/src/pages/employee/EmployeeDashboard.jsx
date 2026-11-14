@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getMyReport } from '../../services/api';
@@ -71,6 +71,41 @@ export const EmployeeDashboard = () => {
     { name: 'Not Started', value: notStarted, color: '#94a3b8' },
     { name: 'Overdue', value: overdue, color: '#f43f5e' }
   ].filter(item => item.value > 0);
+
+  // Latest 3 assigned courses sorted by actual assignment/enrollment date descending
+  const latestAssignedCourses = useMemo(() => {
+    return [...assignments]
+      .sort((a, b) => new Date(b.assignedAt || b.createdAt || 0) - new Date(a.assignedAt || a.createdAt || 0))
+      .slice(0, 3);
+  }, [assignments]);
+
+  // Latest 5 learning activity records sorted by actual activity date/time in descending order (newest first)
+  const recentActivities = useMemo(() => {
+    const list = [
+      ...quizAttempts.map(att => ({
+        id: `quiz_${att._id || att.id}`,
+        type: 'quiz',
+        title: `Attempted ${att.quizTitle}`,
+        percentage: att.percentage,
+        passed: att.passed,
+        date: new Date(att.createdAt || att.completedAt || 0),
+        rawDate: att.createdAt || att.completedAt
+      })),
+      ...assignmentSubmissions.map(sub => ({
+        id: `sub_${sub._id || sub.id}`,
+        type: 'assignment',
+        title: `Submitted ${sub.assignmentTitle}`,
+        format: sub.submissionType === 'github' ? 'Project Link' : 'File Upload',
+        status: sub.status,
+        date: new Date(sub.submittedAt || sub.createdAt || 0),
+        rawDate: sub.submittedAt || sub.createdAt
+      }))
+    ];
+
+    return list
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .slice(0, 5);
+  }, [quizAttempts, assignmentSubmissions]);
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
@@ -303,151 +338,161 @@ export const EmployeeDashboard = () => {
         {assignments.length === 0 ? (
           <EmptyState icon={BookOpen} title="No Courses Assigned" description="You have no active courses assigned to your profile." />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {assignments.map((a) => {
-              const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && a.status !== 'Completed');
-              const isLocked = a.isLocked || a.lockStatus?.isLocked || a.status === 'Locked';
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {latestAssignedCourses.map((a) => {
+                const isOverdue = a.status === 'Overdue' || (new Date(a.deadline) < now && a.status !== 'Completed');
+                const isLocked = a.isLocked || a.lockStatus?.isLocked || a.status === 'Locked';
 
-              let statusLabel = 'Not Started';
-              let badgeStyle = 'bg-teal-600 text-white';
+                let statusLabel = 'Not Started';
+                let badgeStyle = 'bg-teal-600 text-white';
 
-              if (a.status === 'Completed' || a.progressPercentage === 100) {
-                statusLabel = 'Completed';
-                badgeStyle = 'bg-emerald-600 text-white';
-              } else if (isOverdue) {
-                statusLabel = 'Overdue';
-                badgeStyle = 'bg-rose-600 text-white';
-              } else if (a.status === 'In Progress' || a.progressPercentage > 0) {
-                statusLabel = 'In Progress';
-                badgeStyle = 'bg-teal-700 text-white';
-              }
+                if (a.status === 'Completed' || a.progressPercentage === 100) {
+                  statusLabel = 'Completed';
+                  badgeStyle = 'bg-emerald-600 text-white';
+                } else if (isOverdue) {
+                  statusLabel = 'Overdue';
+                  badgeStyle = 'bg-rose-600 text-white';
+                } else if (a.status === 'In Progress' || a.progressPercentage > 0) {
+                  statusLabel = 'In Progress';
+                  badgeStyle = 'bg-teal-700 text-white';
+                }
 
-              return (
-                <div key={a._id} className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between hover:border-slate-300 transition-all group">
-                  <div>
-                    <div className="relative h-44 bg-slate-900 overflow-hidden">
-                      {a.thumbnailUrl ? (
-                        <img src={a.thumbnailUrl} alt={a.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-900 to-teal-950 text-teal-200 font-bold text-base p-4 text-center">
-                          {a.title}
-                        </div>
-                      )}
+                return (
+                  <div key={a._id} className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between hover:border-slate-300 transition-all group">
+                    <div>
+                      <div className="relative h-44 bg-slate-900 overflow-hidden">
+                        {a.thumbnailUrl ? (
+                          <img src={a.thumbnailUrl} alt={a.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-900 to-teal-950 text-teal-200 font-bold text-base p-4 text-center">
+                            {a.title}
+                          </div>
+                        )}
 
-                      {isLocked && (
-                        <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shadow-md bg-rose-600 text-white flex items-center border border-rose-400">
-                          <Lock className="w-3 h-3 mr-1" /> LOCKED
+                        {isLocked && (
+                          <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shadow-md bg-rose-600 text-white flex items-center border border-rose-400">
+                            <Lock className="w-3 h-3 mr-1" /> LOCKED
+                          </span>
+                        )}
+
+                        <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-md ${badgeStyle}`}>
+                          {statusLabel}
                         </span>
-                      )}
+                      </div>
 
-                      <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-md ${badgeStyle}`}>
-                        {statusLabel}
+                      <div className="p-5 space-y-3">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">{a.category || 'Training Course'}</span>
+                          <h3 className="font-bold text-slate-900 text-base line-clamp-1 group-hover:text-emerald-700 transition-colors">{a.title}</h3>
+                        </div>
+
+                        <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{a.description}</p>
+
+                        <div className="flex items-center text-xs text-slate-500 pt-1">
+                          <User className="w-3.5 h-3.5 mr-1 text-slate-400 shrink-0" />
+                          Instructor: <strong className="ml-1 text-slate-700 truncate">{a.instructorName || 'Instructor'}</strong>
+                        </div>
+
+                        <div className="space-y-1.5 pt-2">
+                          <div className="flex justify-between text-xs font-bold text-slate-700">
+                            <span>Progress</span>
+                            <span className="text-emerald-700 font-extrabold">{a.progressPercentage || 0}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
+                            <div
+                              className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${a.progressPercentage || 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                      <span className="text-xs text-slate-500 font-mono">
+                        Due: {formatDate(a.deadline)}
                       </span>
-                    </div>
-
-                    <div className="p-5 space-y-3">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">{a.category || 'Training Course'}</span>
-                        <h3 className="font-bold text-slate-900 text-base line-clamp-1 group-hover:text-emerald-700 transition-colors">{a.title}</h3>
-                      </div>
-
-                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{a.description}</p>
-
-                      <div className="flex items-center text-xs text-slate-500 pt-1">
-                        <User className="w-3.5 h-3.5 mr-1 text-slate-400 shrink-0" />
-                        Instructor: <strong className="ml-1 text-slate-700 truncate">{a.instructorName || 'Instructor'}</strong>
-                      </div>
-
-                      <div className="space-y-1.5 pt-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>Progress</span>
-                          <span className="text-emerald-700 font-extrabold">{a.progressPercentage || 0}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
-                          <div
-                            className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${a.progressPercentage || 0}%` }}
-                          />
-                        </div>
-                      </div>
+                      <button
+                        onClick={() => navigate(`/employee/player/${a._id}`)}
+                        disabled={isLocked}
+                        className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center cursor-pointer ${
+                          isLocked
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                            : statusLabel === 'Completed'
+                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                        }`}
+                      >
+                        {isLocked ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5 mr-1.5" /> Locked
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 mr-1.5" />
+                            {statusLabel === 'Completed' ? 'Review Course' : statusLabel === 'In Progress' ? 'Resume Learning' : 'Start Learning'}
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                    <span className="text-xs text-slate-500 font-mono">
-                      Due: {formatDate(a.deadline)}
-                    </span>
-                    <button
-                      onClick={() => navigate(`/employee/player/${a._id}`)}
-                      disabled={isLocked}
-                      className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center cursor-pointer ${
-                        isLocked
-                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-                          : statusLabel === 'Completed'
-                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                      }`}
-                    >
-                      {isLocked ? (
-                        <>
-                          <Lock className="w-3.5 h-3.5 mr-1.5" /> Locked
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5 mr-1.5" />
-                          {statusLabel === 'Completed' ? 'Review Course' : statusLabel === 'In Progress' ? 'Resume Learning' : 'Start Learning'}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {/* Clearly Visible View All Courses Button */}
+            <div className="flex justify-center pt-1">
+              <Link
+                to="/employee/my-trainings"
+                className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all inline-flex items-center shadow-2xs font-heading cursor-pointer"
+              >
+                <span>View All Courses ({assignments.length})</span>
+                <ArrowRight className="w-4 h-4 ml-1.5" />
+              </Link>
+            </div>
           </div>
         )}
       </div>
 
-      {/* SECTION 5: Recent Learning Activity Timeline */}
-      {(quizAttempts.length > 0 || assignmentSubmissions.length > 0) && (
+      {/* SECTION 5: Recent Learning Activity Timeline (Latest 5 records sorted descending) */}
+      {recentActivities.length > 0 && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-          <h3 className="font-bold text-slate-900 text-base flex items-center font-heading">
-            <Activity className="w-5 h-5 mr-2 text-emerald-600" /> Recent Learning Activity Timeline
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-900 text-base flex items-center font-heading">
+              <Activity className="w-5 h-5 mr-2 text-emerald-600" /> Recent Learning Activity Timeline
+            </h3>
+            <span className="text-xs text-slate-400 font-medium">Latest {recentActivities.length} activities</span>
+          </div>
           <div className="space-y-3">
-            {quizAttempts.slice(0, 3).map((att) => (
-              <div key={att._id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-3">
+            {recentActivities.map((act) => (
+              <div key={act.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-3">
                 <div className="flex items-center space-x-3.5">
-                  <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 shrink-0">
-                    <HelpCircle className="w-4 h-4" />
+                  <div className={`p-2.5 rounded-xl border shrink-0 ${
+                    act.type === 'quiz'
+                      ? 'bg-amber-50 text-amber-600 border-amber-200'
+                      : 'bg-teal-50 text-teal-600 border-teal-200'
+                  }`}>
+                    {act.type === 'quiz' ? <HelpCircle className="w-4 h-4" /> : <FileCheck2 className="w-4 h-4" />}
                   </div>
                   <div>
-                    <p className="font-bold text-slate-900 text-sm">Attempted {att.quizTitle}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">
-                      Score: <strong className="text-slate-800">{att.percentage}%</strong> •{' '}
-                      <span className={att.passed ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>
-                        {att.passed ? 'PASSED ✓' : 'FAILED ✕'}
-                      </span>
-                    </p>
+                    <p className="font-bold text-slate-900 text-sm">{act.title}</p>
+                    {act.type === 'quiz' ? (
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        Score: <strong className="text-slate-800">{act.percentage}%</strong> •{' '}
+                        <span className={act.passed ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}>
+                          {act.passed ? 'PASSED ✓' : 'FAILED ✕'}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        Format: <strong className="text-slate-800">{act.format}</strong> • Status:{' '}
+                        <span className="font-semibold text-teal-700">{act.status}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
-                <span className="text-xs text-slate-400 font-mono shrink-0 self-end sm:self-auto">{formatDate(att.createdAt)}</span>
-              </div>
-            ))}
-
-            {assignmentSubmissions.slice(0, 3).map((sub) => (
-              <div key={sub._id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-3">
-                <div className="flex items-center space-x-3.5">
-                  <div className="p-2.5 rounded-xl bg-teal-50 text-teal-600 border border-teal-200 shrink-0">
-                    <FileCheck2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-slate-900 text-sm">Submitted {sub.assignmentTitle}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">
-                      Format: <strong className="text-slate-800">{sub.submissionType === 'github' ? 'GitHub Link' : 'File Upload'}</strong> • Status: <span className="font-semibold text-teal-700">{sub.status}</span>
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs text-slate-400 font-mono shrink-0 self-end sm:self-auto">{formatDate(sub.submittedAt)}</span>
+                <span className="text-xs text-slate-400 font-mono shrink-0 self-end sm:self-auto">{formatDate(act.rawDate)}</span>
               </div>
             ))}
           </div>

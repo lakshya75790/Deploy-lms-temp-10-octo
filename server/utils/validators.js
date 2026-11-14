@@ -273,8 +273,8 @@ function validateCourseTitle(title) {
   if (trimmed.length < 2) {
     return 'Course title must be at least 2 characters long';
   }
-  if (trimmed.length > 100) {
-    return 'Course title cannot exceed 100 characters';
+  if (trimmed.length > 150) {
+    return 'Course title cannot exceed 150 characters';
   }
   return null;
 }

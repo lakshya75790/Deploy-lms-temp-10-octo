@@ -1,10 +1,16 @@
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 
 let prisma;
 
 const createPrismaClient = () => {
-  const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
+  // Use pooled DATABASE_URL (PgBouncer) for application queries; DIRECT_URL is reserved for Prisma migrations
+  const dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
   const baseClient = new PrismaClient({
     datasources: {
       db: {
@@ -27,7 +33,6 @@ const createPrismaClient = () => {
         async $allOperations({ model, operation, args, query }) {
           let attempts = 0;
           const maxRetries = 5;
-          const retryDelays = [500, 1000, 1500, 2500, 3500];
 
           while (true) {
             try {
@@ -43,19 +48,38 @@ const createPrismaClient = () => {
               const errMsg = error?.message || '';
 
               const isTransientDbError =
-                ['P1000', 'P1001', 'P1002', 'P1008', 'P1017', 'P2024'].includes(errCode) ||
+                ['P1000', 'P1001', 'P1002', 'P1003', 'P1008', 'P1017', 'P2024', 'P2028'].includes(errCode) ||
                 errMsg.includes("Can't reach database server") ||
                 errMsg.includes('kind: Closed') ||
                 errMsg.includes('Connection reset') ||
                 errMsg.includes('ECONNRESET') ||
                 errMsg.includes('ETIMEDOUT') ||
+                errMsg.includes('EPIPE') ||
+                errMsg.includes('ENOTFOUND') ||
                 errMsg.includes('socket hang up') ||
-                errMsg.includes('EngineNotStarted');
+                errMsg.includes('EngineNotStarted') ||
+                errMsg.includes('Server closed the connection') ||
+                errMsg.includes('Connection refused') ||
+                errMsg.includes('NeonDbError') ||
+                errMsg.includes('endpoint is disabled') ||
+                errMsg.includes('compute node');
 
               if (isTransientDbError && attempts < maxRetries) {
-                const delay = retryDelays[attempts] || 1500;
                 attempts++;
+                // Exponential backoff with randomized jitter to prevent thundering herds
+                const baseDelay = 500 * Math.pow(1.8, attempts - 1);
+                const jitter = Math.floor(Math.random() * 300);
+                const delay = Math.min(Math.round(baseDelay + jitter), 6000);
+
                 console.warn(`[Neon DB Retry] Transient connection issue (${errCode || 'network'}) during ${model}.${operation}, attempt ${attempts}/${maxRetries}. Retrying in ${delay}ms...`);
+
+                // Reconnect base client on socket drops before retrying query
+                if (errMsg.includes('kind: Closed') || errMsg.includes('ECONNRESET') || errMsg.includes('socket hang up')) {
+                  try {
+                    await baseClient.$connect();
+                  } catch (_) {}
+                }
+
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
               }

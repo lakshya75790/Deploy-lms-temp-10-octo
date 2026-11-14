@@ -10,13 +10,16 @@ import {
   getAssignmentById,
   submitAssignment,
   uploadPdf,
-  reportQuizSecurityEvent
+  reportQuizSecurityEvent,
+  getSubmissionPdfViewUrl,
+  getMediaPdfViewUrl
 } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import { DocumentPreviewModal } from '../../components/common/DocumentPreviewModal';
 import { useNotification } from '../../context/NotificationContext';
 import { useFocusMode } from '../../context/FocusContext';
 import { validateDocumentFile, validatePdfFile } from '../../utils/fileValidation';
-import { formatDate } from '../../utils/formatters';
+import { formatDate, formatQuizDuration, sanitizeQuizDuration } from '../../utils/formatters';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -28,6 +31,7 @@ import {
   ChevronLeft,
   Lock,
   Download,
+  Eye,
   Award,
   Clock,
   Sparkles,
@@ -41,7 +45,8 @@ import {
   AlertTriangle,
   RotateCcw,
   RotateCw,
-  ExternalLink
+  ExternalLink,
+  Link2
 } from 'lucide-react';
 
 export const TrainingPlayer = () => {
@@ -112,10 +117,12 @@ export const TrainingPlayer = () => {
   const [submissionType, setSubmissionType] = useState('github'); // 'github' | 'file'
   const [githubUrl, setGithubUrl] = useState('');
   const [uploadedFileUrl, setUploadedFileUrl] = useState('');
+  const [uploadedFilePublicId, setUploadedFilePublicId] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   const [existingSubmission, setExistingSubmission] = useState(null);
   const [submittingAssignment, setSubmittingAssignment] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   const [submittingComplete, setSubmittingComplete] = useState(false);
 
@@ -197,7 +204,7 @@ export const TrainingPlayer = () => {
                   id: qId,
                   title: qObj.title || `${sec.title} Quiz`,
                   sectionTitle: sec.title,
-                  timeLimitMinutes: qObj.timeLimitMinutes || 15,
+                  timeLimitMinutes: sanitizeQuizDuration(qObj.timeLimitMinutes),
                   passingScorePercent: qObj.passingScorePercent || 70,
                   questionsCount: qObj.questions?.length || 0
                 });
@@ -232,7 +239,7 @@ export const TrainingPlayer = () => {
               id: qId,
               title: secQuiz.title || `${sec.title} Quiz`,
               sectionTitle: sec.title,
-              timeLimitMinutes: secQuiz.timeLimitMinutes || 15,
+              timeLimitMinutes: sanitizeQuizDuration(secQuiz.timeLimitMinutes),
               passingScorePercent: secQuiz.passingScorePercent || 70,
               questionsCount: secQuiz.questions?.length || 0
             });
@@ -548,7 +555,7 @@ export const TrainingPlayer = () => {
       activeQuizAttemptIdRef.current = attempt._id;
       quizStartTimeRef.current = new Date();
 
-      const timeLimitSecs = (quizData.timeLimitMinutes || 15) * 60;
+      const timeLimitSecs = sanitizeQuizDuration(quizData.timeLimitMinutes) * 60;
       setQuizTimeRemaining(timeLimitSecs);
       setQuizStarted(true);
       setQuizPaused(false);
@@ -651,6 +658,7 @@ export const TrainingPlayer = () => {
   useEffect(() => {
     if (activeItem && activeItem.type === 'assignment') {
       setUploadedFileUrl('');
+      setUploadedFilePublicId('');
       setUploadedFileName('');
       setExistingSubmission(null);
       setGithubUrl('');
@@ -663,6 +671,9 @@ export const TrainingPlayer = () => {
             if (res.data.data.userSubmission.githubUrl) setGithubUrl(res.data.data.userSubmission.githubUrl);
             if (res.data.data.userSubmission.fileUrl) {
               setUploadedFileUrl(res.data.data.userSubmission.fileUrl);
+              if (res.data.data.userSubmission.filePublicId) {
+                setUploadedFilePublicId(res.data.data.userSubmission.filePublicId);
+              }
               try {
                 const urlParts = res.data.data.userSubmission.fileUrl.split('/');
                 const rawName = decodeURIComponent(urlParts[urlParts.length - 1] || 'assignment.pdf').split('?')[0];
@@ -696,6 +707,7 @@ export const TrainingPlayer = () => {
     try {
       const res = await uploadPdf(formData);
       setUploadedFileUrl(res.data.data.url);
+      setUploadedFilePublicId(res.data.data.publicId || '');
       setUploadedFileName(file.name || res.data.data.originalName || 'assignment.pdf');
       addToast('success', 'Assignment file uploaded successfully!');
     } catch (err) {
@@ -710,9 +722,21 @@ export const TrainingPlayer = () => {
     e.preventDefault();
     if (!assignmentDetails) return;
 
-    if (submissionType === 'github' && (!githubUrl || !githubUrl.includes('github.com'))) {
-      addToast('error', 'Please enter a valid GitHub Repository URL (e.g., https://github.com/user/repo)');
-      return;
+    if (submissionType === 'github') {
+      const trimmedUrl = githubUrl?.trim();
+      if (!trimmedUrl) {
+        addToast('error', 'Please enter your project URL or sharing link');
+        return;
+      }
+      try {
+        const urlToValidate = trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')
+          ? trimmedUrl
+          : `https://${trimmedUrl}`;
+        new URL(urlToValidate);
+      } catch {
+        addToast('error', 'Please enter a valid project URL or sharing link (e.g. GitHub, GitLab, Google Drive, etc.)');
+        return;
+      }
     }
 
     if (submissionType === 'file' && !uploadedFileUrl) {
@@ -720,16 +744,61 @@ export const TrainingPlayer = () => {
       return;
     }
 
+    // Change detection check when updating an existing submission
+    if (existingSubmission) {
+      const currentType = submissionType;
+      const initialType = existingSubmission.submissionType;
+
+      let hasChanged = false;
+
+      if (currentType !== initialType) {
+        hasChanged = true;
+      } else if (currentType === 'github') {
+        const normalize = (u) => (u || '').trim().replace(/\/+$/, '');
+        const currentUrl = githubUrl?.trim()
+          ? (githubUrl.trim().startsWith('http://') || githubUrl.trim().startsWith('https://')
+            ? githubUrl.trim()
+            : `https://${githubUrl.trim()}`)
+          : '';
+        const existingUrl = existingSubmission.githubUrl?.trim()
+          ? (existingSubmission.githubUrl.trim().startsWith('http://') || existingSubmission.githubUrl.trim().startsWith('https://')
+            ? existingSubmission.githubUrl.trim()
+            : `https://${existingSubmission.githubUrl.trim()}`)
+          : '';
+        if (normalize(currentUrl) !== normalize(existingUrl)) {
+          hasChanged = true;
+        }
+      } else if (currentType === 'file') {
+        const currentFile = (uploadedFileUrl || '').trim();
+        const existingFile = (existingSubmission.fileUrl || '').trim();
+        if (currentFile !== existingFile) {
+          hasChanged = true;
+        }
+      }
+
+      if (!hasChanged) {
+        addToast('info', 'No changes detected. Please make some changes before updating your submission.');
+        return;
+      }
+    }
+
     setSubmittingAssignment(true);
     try {
+      const formattedUrl = githubUrl?.trim()
+        ? (githubUrl.trim().startsWith('http://') || githubUrl.trim().startsWith('https://')
+          ? githubUrl.trim()
+          : `https://${githubUrl.trim()}`)
+        : undefined;
+
       const res = await submitAssignment(assignmentDetails._id, {
         submissionType,
-        githubUrl: submissionType === 'github' ? githubUrl : undefined,
+        githubUrl: submissionType === 'github' ? formattedUrl : undefined,
         fileUrl: submissionType === 'file' ? uploadedFileUrl : undefined,
+        filePublicId: submissionType === 'file' ? uploadedFilePublicId : undefined,
         trainingAssignmentId: assignmentId
       });
       setExistingSubmission(res.data.data.submission);
-      addToast('success', 'Assignment submitted to instructor successfully!');
+      addToast('success', existingSubmission ? 'Assignment submission updated successfully!' : 'Assignment submitted to instructor successfully!');
       fetchWorkspace(true);
     } catch (err) {
       addToast('error', err.response?.data?.message || 'Failed to submit assignment');
@@ -929,15 +998,15 @@ export const TrainingPlayer = () => {
   const benefits = Array.isArray(rawBenefits)
     ? rawBenefits.map(b => (typeof b === 'string' ? b.trim() : String(b || ''))).filter(Boolean)
     : (typeof rawBenefits === 'string' && rawBenefits.trim()
-        ? (() => {
-            try {
-              const parsed = JSON.parse(rawBenefits);
-              return Array.isArray(parsed) ? parsed.map(b => String(b).trim()).filter(Boolean) : [rawBenefits.trim()];
-            } catch (e) {
-              return [rawBenefits.trim()];
-            }
-          })()
-        : []);
+      ? (() => {
+        try {
+          const parsed = JSON.parse(rawBenefits);
+          return Array.isArray(parsed) ? parsed.map(b => String(b).trim()).filter(Boolean) : [rawBenefits.trim()];
+        } catch (e) {
+          return [rawBenefits.trim()];
+        }
+      })()
+      : []);
 
   const currentIdx = allItems.findIndex(i => activeItem && i.id === activeItem.id && i.type === activeItem.type);
   const activeStatus = activeItem ? getItemStatus(activeItem) : { isCompleted: false, isLocked: false };
@@ -1044,15 +1113,13 @@ export const TrainingPlayer = () => {
                             {currentQ.options?.map((opt, optIdx) => (
                               <label
                                 key={optIdx}
-                                className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${
-                                  selectedAnswers[currentQuestionIdx] === optIdx
+                                className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${selectedAnswers[currentQuestionIdx] === optIdx
                                     ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-xs'
                                     : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                }`}
+                                  }`}
                               >
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${
-                                  selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-600'
-                                }`}>
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${selectedAnswers[currentQuestionIdx] === optIdx ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-600'
+                                  }`}>
                                   {selectedAnswers[currentQuestionIdx] === optIdx && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />}
                                 </div>
                                 <input
@@ -1083,15 +1150,13 @@ export const TrainingPlayer = () => {
                               return (
                                 <label
                                   key={optIdx}
-                                  className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${
-                                    isChecked
+                                  className={`flex items-start p-4 rounded-xl border-2 text-sm cursor-pointer transition-all ${isChecked
                                       ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 font-bold shadow-xs'
                                       : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                  }`}
+                                    }`}
                                 >
-                                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${
-                                    isChecked ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600'
-                                  }`}>
+                                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center mr-4 shrink-0 mt-0.5 ${isChecked ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600'
+                                    }`}>
                                     {isChecked && (
                                       <svg className="w-3.5 h-3.5 stroke-current stroke-3 fill-none" viewBox="0 0 24 24">
                                         <polyline points="20 6 9 17 4 12" />
@@ -1125,11 +1190,10 @@ export const TrainingPlayer = () => {
                             <button
                               type="button"
                               onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 0 })}
-                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
-                                selectedAnswers[currentQuestionIdx] === 0
+                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 0
                                   ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-300 shadow-xs'
                                   : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-300 dark:hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                              }`}
+                                }`}
                             >
                               <span className="text-2xl">✓</span>
                               <span>True</span>
@@ -1137,11 +1201,10 @@ export const TrainingPlayer = () => {
                             <button
                               type="button"
                               onClick={() => setSelectedAnswers({ ...selectedAnswers, [currentQuestionIdx]: 1 })}
-                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${
-                                selectedAnswers[currentQuestionIdx] === 1
+                              className={`p-6 rounded-xl border-2 text-base font-bold cursor-pointer transition-all flex flex-col items-center justify-center space-y-2 ${selectedAnswers[currentQuestionIdx] === 1
                                   ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-300 shadow-xs'
                                   : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-300 dark:hover:border-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                              }`}
+                                }`}
                             >
                               <span className="text-2xl">✕</span>
                               <span>False</span>
@@ -1181,11 +1244,10 @@ export const TrainingPlayer = () => {
                               [currentQuestionIdx]: !prev[currentQuestionIdx]
                             }));
                           }}
-                          className={`px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border text-xs sm:text-sm font-bold cursor-pointer transition-colors flex items-center ${
-                            markedForReview[currentQuestionIdx]
+                          className={`px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border text-xs sm:text-sm font-bold cursor-pointer transition-colors flex items-center ${markedForReview[currentQuestionIdx]
                               ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
                               : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                          }`}
+                            }`}
                         >
                           <span className="mr-1.5">🚩</span>
                           {markedForReview[currentQuestionIdx] ? 'Marked for Review' : 'Mark for Review'}
@@ -1224,15 +1286,14 @@ export const TrainingPlayer = () => {
                       <button
                         key={idx}
                         onClick={() => setCurrentQuestionIdx(idx)}
-                        className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${
-                          isCurrent
+                        className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold border-2 cursor-pointer transition-all ${isCurrent
                             ? 'border-slate-900 bg-slate-900 dark:border-emerald-500 dark:bg-emerald-600 text-white shadow-xs transform scale-105'
                             : isReview
-                            ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
-                            : isAnswered
-                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
-                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'
-                        }`}
+                              ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                              : isAnswered
+                                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'
+                          }`}
                       >
                         {idx + 1}
                       </button>
@@ -1434,10 +1495,10 @@ export const TrainingPlayer = () => {
                               className="bg-emerald-500 h-full rounded-lg transition-all duration-75"
                               style={{
                                 width: `${duration > 0
-                                    ? (currentTime >= duration || (videoRef.current && videoRef.current.ended)
-                                      ? 100
-                                      : Math.min(100, Math.round((currentTime / duration) * 100)))
-                                    : 0
+                                  ? (currentTime >= duration || (videoRef.current && videoRef.current.ended)
+                                    ? 100
+                                    : Math.min(100, Math.round((currentTime / duration) * 100)))
+                                  : 0
                                   }%`
                               }}
                             />
@@ -1482,11 +1543,10 @@ export const TrainingPlayer = () => {
                               type="button"
                               onClick={handleForward10}
                               disabled={!canSeekForward}
-                              className={`px-2 py-1 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1 ${
-                                canSeekForward
+                              className={`px-2 py-1 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1 ${canSeekForward
                                   ? 'bg-white/10 hover:bg-white/20 hover:text-emerald-400 text-slate-200 cursor-pointer'
                                   : 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
-                              }`}
+                                }`}
                               title={
                                 canSeekForward
                                   ? 'Forward 10 seconds (+10s)'
@@ -1595,8 +1655,8 @@ export const TrainingPlayer = () => {
                 /* QUIZ RESULT SCREEN */
                 <div className="space-y-6">
                   <div className={`p-6 rounded-2xl border text-center space-y-2 ${quizResult.passed
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}>
                     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${quizResult.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
                       }`}>
@@ -1628,10 +1688,10 @@ export const TrainingPlayer = () => {
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-slate-900">Question {idx + 1}: {ans.questionText}</span>
                             <span className={`px-2.5 py-0.5 rounded font-bold text-[10px] ${ans.isCorrect
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : isUnanswered
-                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : isUnanswered
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
                               }`}>
                               {ans.isCorrect ? '✓ Correct' : isUnanswered ? '○ Not Answered' : '✕ Incorrect'}
                             </span>
@@ -1701,7 +1761,7 @@ export const TrainingPlayer = () => {
                       <Clock className="w-5 h-5 mx-auto text-emerald-600" />
                       <span className="block text-[11px] text-slate-500 font-bold uppercase tracking-wider">Duration</span>
                       <strong className="block text-base font-extrabold text-slate-900">
-                        {quizData.timeLimitMinutes || 15} Min{quizData.timeLimitMinutes === 1 ? '' : 's'}
+                        {formatQuizDuration(quizData.timeLimitMinutes)}
                       </strong>
                     </div>
 
@@ -1768,25 +1828,25 @@ export const TrainingPlayer = () => {
                   {/* Submission Form */}
                   <form onSubmit={handleAssignmentSubmit} className="space-y-5">
                     <div className="space-y-2">
-                      <label className="block text-xs font-semibold text-slate-700">Select Submission Format (Choose EITHER GitHub OR File Upload)</label>
+                      <label className="block text-xs font-semibold text-slate-700">Select Submission Format (Choose EITHER Project URL OR File Upload)</label>
                       <div className="flex space-x-4">
                         <button
                           type="button"
                           onClick={() => setSubmissionType('github')}
                           className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${submissionType === 'github'
-                              ? 'bg-teal-50 border-teal-300 text-teal-700'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            ? 'bg-teal-50 border-teal-300 text-teal-700'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                             }`}
                         >
-                          <Code2 className="w-4 h-4" />
-                          <span>Option 1: GitHub Repository Link</span>
+                          <Link2 className="w-4 h-4" />
+                          <span>Option 1: Project URL / Link (Optional)</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setSubmissionType('file')}
                           className={`flex-1 p-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all cursor-pointer ${submissionType === 'file'
-                              ? 'bg-teal-50 border-teal-300 text-teal-700'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            ? 'bg-teal-50 border-teal-300 text-teal-700'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                             }`}
                         >
                           <Upload className="w-4 h-4" />
@@ -1798,16 +1858,18 @@ export const TrainingPlayer = () => {
                     {submissionType === 'github' ? (
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          GitHub Repository URL <span className="text-rose-500">*</span>
+                          Project URL / Link (Optional)
                         </label>
                         <input
                           type="url"
                           value={githubUrl}
                           onChange={(e) => setGithubUrl(e.target.value)}
-                          required
-                          placeholder="https://github.com/username/repository"
+                          placeholder="Enter your project URL or sharing link (e.g. Google Drive)"
                           className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 outline-none focus:border-teal-600"
                         />
+                        <p className="text-[11px] text-slate-500 mt-1.5">
+                          Share your project link or any accessible URL related to your assignment.
+                        </p>
                       </div>
                     ) : (
                       <div>
@@ -1835,16 +1897,19 @@ export const TrainingPlayer = () => {
                               <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
                                 Uploaded
                               </span>
-                              <a
-                                href={uploadedFileUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1 text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-300 transition-colors"
-                                title="View Uploaded PDF"
-                                aria-label="View Uploaded PDF"
+                              <button
+                                type="button"
+                                onClick={() => setPreviewDoc({
+                                  fileUrl: uploadedFileUrl,
+                                  fileName: uploadedFileName || 'assignment.pdf',
+                                  fileType: 'pdf'
+                                })}
+                                className="p-1 text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-300 transition-colors cursor-pointer"
+                                title="Preview Uploaded PDF"
+                                aria-label="Preview Uploaded PDF"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1859,8 +1924,8 @@ export const TrainingPlayer = () => {
                             Assignment Submitted
                           </span>
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${existingSubmission.status === 'reviewed'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
                             }`}>
                             {existingSubmission.status === 'reviewed' ? '✓ Reviewed' : 'Pending Review'}
                           </span>
@@ -1870,19 +1935,39 @@ export const TrainingPlayer = () => {
                           Submitted on: {formatDate(existingSubmission.submittedAt)}
                         </p>
 
+                        {existingSubmission.submissionType === 'github' && existingSubmission.githubUrl && (
+                          <div className="flex items-center space-x-2 pt-1 text-[11px] text-slate-600">
+                            <Link2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="font-medium text-slate-700">Project Link:</span>
+                            <a
+                              href={existingSubmission.githubUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-teal-600 hover:text-teal-700 font-mono underline inline-flex items-center ml-1 break-all"
+                              title="Open Project Link"
+                            >
+                              {existingSubmission.githubUrl} <ExternalLink className="w-3 h-3 ml-1 shrink-0" />
+                            </a>
+                          </div>
+                        )}
+
                         {existingSubmission.submissionType === 'file' && existingSubmission.fileUrl && (
                           <div className="flex items-center space-x-2 pt-1 text-[11px] text-slate-600">
                             <FileText className="w-3.5 h-3.5 text-slate-400" />
                             <span className="font-medium truncate max-w-xs">{uploadedFileName || 'assignment.pdf'}</span>
-                            <a
-                              href={existingSubmission.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-emerald-600 hover:text-emerald-700 font-semibold inline-flex items-center ml-1"
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc({
+                                submissionId: existingSubmission._id || existingSubmission.id,
+                                fileUrl: existingSubmission.fileUrl,
+                                fileName: uploadedFileName || 'assignment.pdf',
+                                fileType: 'pdf'
+                              })}
+                              className="text-emerald-600 hover:text-emerald-700 font-semibold inline-flex items-center ml-1 cursor-pointer bg-transparent border-0 p-0"
                               title="View Submitted PDF"
                             >
                               View PDF <ExternalLink className="w-3 h-3 ml-0.5" />
-                            </a>
+                            </button>
                           </div>
                         )}
 
@@ -1952,10 +2037,10 @@ export const TrainingPlayer = () => {
                   onClick={handleMarkComplete}
                   disabled={isBtnDisabled}
                   className={`px-5 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center ${activeStatus.isCompleted
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default font-bold'
-                      : isVideoIncomplete
-                        ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default font-bold'
+                    : isVideoIncomplete
+                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
                     }`}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-1.5" />
@@ -2038,12 +2123,12 @@ export const TrainingPlayer = () => {
                             }}
                             disabled={status.isLocked}
                             className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${isCurrent
-                                ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                                : status.isCompleted
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
-                                  : status.isLocked
-                                    ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
-                                    : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
+                              ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                              : status.isCompleted
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
+                                : status.isLocked
+                                  ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
+                                  : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
                               }`}
                           >
                             <div className="flex items-center space-x-2.5 truncate">
@@ -2089,12 +2174,12 @@ export const TrainingPlayer = () => {
                       }}
                       disabled={status.isLocked}
                       className={`w-full text-left p-3 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer ${isCurrent
-                          ? 'bg-teal-600 text-white font-bold shadow-xs'
-                          : status.isCompleted
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
-                            : status.isLocked
-                              ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
-                              : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
+                        ? 'bg-teal-600 text-white font-bold shadow-xs'
+                        : status.isCompleted
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold'
+                          : status.isLocked
+                            ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed border border-slate-200'
+                            : 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-200'
                         }`}
                     >
                       <div className="flex items-center space-x-2.5 truncate">
@@ -2133,14 +2218,29 @@ export const TrainingPlayer = () => {
                       <p className="font-bold text-slate-900 truncate">{res.title}</p>
                       <p className="text-[10px] text-slate-500 truncate">{res.lessonTitle}</p>
                     </div>
-                    <a
-                      href={formatMediaUrl(res.fileUrl || res.pdfUrl || res.url)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 hover:bg-emerald-100 cursor-pointer inline-flex items-center text-[11px] flex-shrink-0"
-                    >
-                      <Download className="w-3 h-3 mr-1" /> Download
-                    </a>
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc({
+                          fileUrl: formatMediaUrl(res.fileUrl || res.pdfUrl || res.url),
+                          fileName: res.title || 'Course_Resource.pdf',
+                          title: res.title
+                        })}
+                        className="px-2 py-1 rounded-lg bg-teal-50 text-teal-700 font-semibold border border-teal-200 hover:bg-teal-100 cursor-pointer inline-flex items-center text-[11px]"
+                        title="View Document"
+                      >
+                        <Eye className="w-3 h-3 mr-1" /> View
+                      </button>
+                      <a
+                        href={formatMediaUrl(res.fileUrl || res.pdfUrl || res.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 hover:bg-emerald-100 cursor-pointer inline-flex items-center text-[11px]"
+                        title="Download Document"
+                      >
+                        <Download className="w-3 h-3 mr-1" /> Download
+                      </a>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2148,6 +2248,19 @@ export const TrainingPlayer = () => {
           )}
         </div>
       </div>
+
+      {/* In-App Document Preview Modal */}
+      {previewDoc && (
+        <DocumentPreviewModal
+          isOpen={Boolean(previewDoc)}
+          onClose={() => setPreviewDoc(null)}
+          fileUrl={previewDoc.fileUrl}
+          submissionId={previewDoc.submissionId}
+          fileName={previewDoc.fileName}
+          title={previewDoc.title}
+          fileType={previewDoc.fileType}
+        />
+      )}
     </div>
   );
 };

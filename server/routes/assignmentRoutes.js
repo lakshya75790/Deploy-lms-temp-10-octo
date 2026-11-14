@@ -8,7 +8,9 @@ const {
   getAssignmentSubmissions,
   getInstructorSubmissions,
   getEmployeeFeedback,
-  reviewSubmission
+  reviewSubmission,
+  downloadSubmissionFile,
+  viewSubmissionPdf
 } = require('../controllers/assignmentController');
 const { protect } = require('../middleware/authMiddleware');
 const { authorizeRoles } = require('../middleware/roleMiddleware');
@@ -26,6 +28,8 @@ router.route('/:id')
 
 router.post('/:id/submit', authorizeRoles('Employee'), submitAssignment);
 router.get('/:id/submissions', authorizeRoles('Instructor', 'Admin'), getAssignmentSubmissions);
+router.get('/submissions/:submissionId/download', authorizeRoles('Instructor', 'Admin', 'Employee'), downloadSubmissionFile);
+router.get('/submissions/:submissionId/view-pdf', authorizeRoles('Instructor', 'Admin', 'Employee'), viewSubmissionPdf);
 router.put('/submissions/:submissionId/review', authorizeRoles('Instructor'), reviewSubmission);
 
 module.exports = router;

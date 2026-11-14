@@ -10,9 +10,11 @@ import {
   deleteMedia
 } from '../../services/api';
 import { validateImageFile, validateVideoFile, validatePdfFile } from '../../utils/fileValidation';
+import { formatQuizDuration, sanitizeQuizDuration, validateQuizDuration } from '../../utils/formatters';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
+import { DocumentPreviewModal } from '../../components/common/DocumentPreviewModal';
 import { useNotification } from '../../context/NotificationContext';
 import {
   ArrowLeft,
@@ -33,8 +35,18 @@ import {
   ChevronRight,
   ChevronLeft,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Eye
 } from 'lucide-react';
+
+const formatVideoDuration = (seconds) => {
+  if (!seconds || isNaN(seconds) || seconds <= 0) return null;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins === 0) return `${secs}s`;
+  if (secs === 0) return `${mins}m`;
+  return `${mins}m ${secs}s`;
+};
 
 export const CourseBuilder = () => {
   const { id: routeTrainingId } = useParams();
@@ -105,6 +117,7 @@ export const CourseBuilder = () => {
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizTitle, setQuizTitle] = useState('');
   const [quizDurationMinutes, setQuizDurationMinutes] = useState(15);
+  const [quizDurationError, setQuizDurationError] = useState('');
   const [quizPassingScorePercent, setQuizPassingScorePercent] = useState(70);
   const [quizQuestions, setQuizQuestions] = useState([
     {
@@ -125,6 +138,7 @@ export const CourseBuilder = () => {
   const [addResourcesEnabled, setAddResourcesEnabled] = useState(false);
   const [resources, setResources] = useState([]); // [{ title, fileUrl, filePublicId }]
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   // Confirmation Modal State
   const [confirmDialog, setConfirmDialog] = useState({
@@ -181,7 +195,7 @@ export const CourseBuilder = () => {
                   mappedQuiz = {
                     id: secQuiz._id || secQuiz.id,
                     title: secQuiz.title || `${sec.title || 'Section'} Quiz`,
-                    timeLimitMinutes: secQuiz.timeLimitMinutes || 15,
+                    timeLimitMinutes: sanitizeQuizDuration(secQuiz.timeLimitMinutes),
                     passingScorePercent: secQuiz.passingScorePercent || 70,
                     questions: Array.isArray(secQuiz.questions) && secQuiz.questions.length > 0
                       ? secQuiz.questions.map(q => ({
@@ -218,7 +232,7 @@ export const CourseBuilder = () => {
                 loadedSections[0].quiz = {
                   id: legacyQuiz._id || legacyQuiz.id,
                   title: legacyQuiz.title || `${loadedSections[0].title} Quiz`,
-                  timeLimitMinutes: legacyQuiz.timeLimitMinutes || 15,
+                  timeLimitMinutes: sanitizeQuizDuration(legacyQuiz.timeLimitMinutes),
                   passingScorePercent: legacyQuiz.passingScorePercent || 70,
                   questions: Array.isArray(legacyQuiz.questions)
                     ? legacyQuiz.questions.map(q => ({
@@ -264,8 +278,17 @@ export const CourseBuilder = () => {
 
   // BENEFIT HANDLERS
   const handleAddBenefit = () => {
-    if (!benefitInput.trim()) return;
-    setBenefits([...benefits, benefitInput.trim()]);
+    const trimmed = benefitInput.trim();
+    if (!trimmed) return;
+    if (benefits.length >= 10) {
+      addToast('warning', 'Maximum 10 benefits allowed.');
+      return;
+    }
+    if (trimmed.length > 150) {
+      addToast('error', 'Benefit cannot exceed 150 characters');
+      return;
+    }
+    setBenefits([...benefits, trimmed]);
     setBenefitInput('');
   };
 
@@ -345,20 +368,29 @@ export const CourseBuilder = () => {
 
   const handleSaveSection = (e) => {
     e.preventDefault();
-    if (!sectionTitle.trim()) {
+    const trimmedTitle = sectionTitle.trim();
+    if (!trimmedTitle) {
       addToast('error', 'Section title is required');
+      return;
+    }
+    if (trimmedTitle.length > 100) {
+      addToast('error', 'Section title cannot exceed 100 characters');
+      return;
+    }
+    if (sectionDesc && sectionDesc.trim().length > 500) {
+      addToast('error', 'Section description cannot exceed 500 characters');
       return;
     }
 
     if (editingSectionIdx !== null) {
       const updated = [...sections];
-      updated[editingSectionIdx].title = sectionTitle.trim();
+      updated[editingSectionIdx].title = trimmedTitle;
       updated[editingSectionIdx].description = sectionDesc.trim();
       setSections(updated);
-      addToast('success', 'Section updated');
+      addToast('success', 'Section updated successfully');
     } else {
-      setSections([...sections, { title: sectionTitle.trim(), description: sectionDesc.trim(), lectures: [] }]);
-      addToast('success', 'Section added');
+      setSections([...sections, { title: trimmedTitle, description: sectionDesc.trim(), lectures: [] }]);
+      addToast('success', 'Section added successfully');
     }
     setShowSectionModal(false);
   };
@@ -486,7 +518,6 @@ export const CourseBuilder = () => {
       setVideoUploadProgress(100);
       setVideoUploadState('success');
       setVideoUploadError('');
-      addToast('success', 'Lecture video uploaded to Cloudinary!');
     } catch (err) {
       if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
         setVideoUploadProgress(0);
@@ -544,8 +575,17 @@ export const CourseBuilder = () => {
       return;
     }
 
-    if (!lectureTitle.trim()) {
+    const trimmedTitle = lectureTitle.trim();
+    if (!trimmedTitle) {
       addToast('error', 'Lecture title is required');
+      return;
+    }
+    if (trimmedTitle.length > 120) {
+      addToast('error', 'Lecture title cannot exceed 120 characters');
+      return;
+    }
+    if (lectureDesc && lectureDesc.trim().length > 1000) {
+      addToast('error', 'Lecture description cannot exceed 1,000 characters');
       return;
     }
 
@@ -556,7 +596,7 @@ export const CourseBuilder = () => {
 
     const updated = [...sections];
     const lecObj = {
-      title: lectureTitle.trim(),
+      title: trimmedTitle,
       description: lectureDesc.trim(),
       videoUrl: lectureVideoUrl,
       videoPublicId: lectureVideoPublicId,
@@ -565,10 +605,10 @@ export const CourseBuilder = () => {
 
     if (editingLectureIdx !== null) {
       updated[targetSectionIdx].lectures[editingLectureIdx] = lecObj;
-      addToast('success', 'Lecture updated');
+      addToast('success', 'Lecture updated successfully');
     } else {
       updated[targetSectionIdx].lectures.push(lecObj);
-      addToast('success', 'Lecture added to section');
+      addToast('success', 'Lecture added successfully');
     }
 
     setSections(updated);
@@ -605,6 +645,7 @@ export const CourseBuilder = () => {
     const sec = sections[sIdx];
     setQuizTitle(sec ? `${sec.title} Quiz` : 'Section Quiz');
     setQuizDurationMinutes(15);
+    setQuizDurationError('');
     setQuizPassingScorePercent(70);
     setQuizQuestions([
       {
@@ -625,7 +666,8 @@ export const CourseBuilder = () => {
     const quiz = sec?.quiz;
     if (quiz) {
       setQuizTitle(quiz.title || `${sec.title} Quiz`);
-      setQuizDurationMinutes(quiz.timeLimitMinutes || 15);
+      setQuizDurationMinutes(sanitizeQuizDuration(quiz.timeLimitMinutes));
+      setQuizDurationError('');
       setQuizPassingScorePercent(quiz.passingScorePercent || 70);
       if (quiz.questions && quiz.questions.length > 0) {
         setQuizQuestions(quiz.questions.map(q => {
@@ -676,10 +718,19 @@ export const CourseBuilder = () => {
       addToast('error', 'Quiz Title is required');
       return;
     }
-    if (trimmedQuizTitle.length > 100) {
-      addToast('error', 'Quiz Title cannot exceed 100 characters');
+    if (trimmedQuizTitle.length > 120) {
+      addToast('error', 'Quiz Title cannot exceed 120 characters');
       return;
     }
+
+    // Validate Quiz Duration (1 to 600 minutes)
+    const durationErr = validateQuizDuration(quizDurationMinutes);
+    if (durationErr) {
+      addToast('error', durationErr);
+      setQuizDurationError(durationErr);
+      return;
+    }
+    const finalDurationMinutes = parseInt(String(quizDurationMinutes).trim(), 10);
 
     const validQuestions = quizQuestions.filter(q => q.questionText && q.questionText.trim());
     if (validQuestions.length === 0) {
@@ -724,7 +775,7 @@ export const CourseBuilder = () => {
     updated[targetSectionIdx].quiz = {
       ...(existingSecQuiz || {}),
       title: trimmedQuizTitle,
-      timeLimitMinutes: Number(quizDurationMinutes) || 15,
+      timeLimitMinutes: finalDurationMinutes,
       passingScorePercent: Number(quizPassingScorePercent) || 70,
       questions: validQuestions.map((q, qIdx) => {
         const qType = q.questionType || 'MCQ';
@@ -752,7 +803,7 @@ export const CourseBuilder = () => {
 
     setSections(updated);
     setShowQuizModal(false);
-    addToast('success', `Quiz configured for ${updated[targetSectionIdx].title}`);
+    addToast('success', 'Quiz added successfully');
   };
 
   const handleRemoveSectionQuiz = (sIdx) => {
@@ -872,9 +923,23 @@ export const CourseBuilder = () => {
         addToast('error', 'Training Title must be at least 2 characters long');
         return;
       }
-      if (trimmedTitle.length > 100) {
-        addToast('error', 'Training Title cannot exceed 100 characters');
+      if (trimmedTitle.length > 150) {
+        addToast('error', 'Training Title cannot exceed 150 characters');
         return;
+      }
+      if (description && description.trim().length > 300) {
+        addToast('error', 'Short Description cannot exceed 300 characters');
+        return;
+      }
+      if (benefits.length > 10) {
+        addToast('error', 'Maximum 10 benefits allowed');
+        return;
+      }
+      for (let i = 0; i < benefits.length; i++) {
+        if (benefits[i].length > 150) {
+          addToast('error', `Benefit #${i + 1} exceeds 150 characters`);
+          return;
+        }
       }
       if (!categoryId) {
         addToast('error', 'Please select a Category');
@@ -893,6 +958,16 @@ export const CourseBuilder = () => {
       }
       setCurrentStep(3);
     } else if (currentStep === 3) {
+      if (addAssignmentEnabled) {
+        if (assignmentTitle.trim().length > 150) {
+          addToast('error', 'Assignment title cannot exceed 150 characters');
+          return;
+        }
+        if (assignmentInstructions.trim().length > 2000) {
+          addToast('error', 'Assignment instructions cannot exceed 2,000 characters');
+          return;
+        }
+      }
       setCurrentStep(4);
     }
   };
@@ -905,8 +980,33 @@ export const CourseBuilder = () => {
   const handleFinalSubmit = async (targetStatus) => {
     if (submitting) return;
 
-    if (!title.trim() || !categoryId) {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle || !categoryId) {
       addToast('error', 'Basic details missing. Please complete Step 1.');
+      setCurrentStep(1);
+      return;
+    }
+
+    if (trimmedTitle.length < 2) {
+      addToast('error', 'Training Title must be at least 2 characters long');
+      setCurrentStep(1);
+      return;
+    }
+
+    if (trimmedTitle.length > 150) {
+      addToast('error', 'Training Title cannot exceed 150 characters');
+      setCurrentStep(1);
+      return;
+    }
+
+    if (description && description.trim().length > 300) {
+      addToast('error', 'Short Description cannot exceed 300 characters');
+      setCurrentStep(1);
+      return;
+    }
+
+    if (benefits.length > 10) {
+      addToast('error', 'Maximum 10 benefits allowed');
       setCurrentStep(1);
       return;
     }
@@ -915,6 +1015,19 @@ export const CourseBuilder = () => {
       addToast('error', 'Please add at least one Section in Step 2.');
       setCurrentStep(2);
       return;
+    }
+
+    if (addAssignmentEnabled) {
+      if (assignmentTitle.trim().length > 150) {
+        addToast('error', 'Assignment title cannot exceed 150 characters');
+        setCurrentStep(3);
+        return;
+      }
+      if (assignmentInstructions.trim().length > 2000) {
+        addToast('error', 'Assignment instructions cannot exceed 2,000 characters');
+        setCurrentStep(3);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -927,7 +1040,7 @@ export const CourseBuilder = () => {
           secQuiz = {
             id: sec.quiz.id || sec.quiz._id,
             title: sec.quiz.title || `${sec.title} Quiz`,
-            timeLimitMinutes: Number(sec.quiz.timeLimitMinutes) || 15,
+            timeLimitMinutes: sanitizeQuizDuration(sec.quiz.timeLimitMinutes),
             passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
             questions: sec.quiz.questions.filter(q => q.questionText && q.questionText.trim()).map((q, qIdx) => {
               const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
@@ -1109,33 +1222,45 @@ export const CourseBuilder = () => {
                 <label className="block text-xs font-semibold text-slate-700">
                   Course Title <span className="text-rose-500">*</span>
                 </label>
-                <span className="text-[10px] text-slate-400">2–100 characters</span>
+                <span className={`text-[10px] ${title.length > 150 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                  {title.length}/150 characters
+                </span>
               </div>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
-                maxLength={100}
+                maxLength={150}
                 placeholder="e.g. Master React 19 & Next.js Architecture"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 focus:border-emerald-600 outline-none"
               />
-              <div className="flex justify-end mt-1">
-                <span className="text-[10px] text-slate-400">{title.length}/100 characters</span>
+              <div className="flex justify-between items-center mt-1">
+                <span className="text-[10px] text-slate-400">Minimum 2 characters required</span>
+                <span className="text-[10px] text-slate-400">{title.length}/150 characters</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Short Description
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Short Description
+                </label>
+                <span className={`text-[10px] ${description.length > 300 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                  {description.length}/300 characters
+                </span>
+              </div>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                maxLength={300}
                 rows={3}
                 placeholder="A concise overview of what learners will gain from this course..."
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:border-emerald-600 outline-none resize-none"
               />
+              <div className="flex justify-end mt-1">
+                <span className="text-[10px] text-slate-400">{description.length}/300 characters</span>
+              </div>
             </div>
 
             <div>
@@ -1195,35 +1320,57 @@ export const CourseBuilder = () => {
 
             {/* Benefits Multi-Input */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Benefits of the Course
-              </label>
-              <div className="flex items-center space-x-2 mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Benefits of the Course <span className="text-[11px] font-normal text-slate-500">({benefits.length}/10)</span>
+                </label>
+                <span className="text-[10px] text-slate-400">Max 10 benefits</span>
+              </div>
+              <div className="flex items-center space-x-2 mb-1">
                 <input
                   type="text"
                   value={benefitInput}
                   onChange={(e) => setBenefitInput(e.target.value)}
-                  placeholder="e.g. Learn modern React state management"
+                  maxLength={150}
+                  disabled={benefits.length >= 10}
+                  placeholder={benefits.length >= 10 ? 'Maximum 10 benefits reached' : 'e.g. Learn modern React state management'}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBenefit(); } }}
-                  className="flex-1 px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none"
+                  className="flex-1 px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:border-emerald-600 outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 />
                 <button
                   type="button"
                   onClick={handleAddBenefit}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer"
+                  disabled={benefits.length >= 10 || !benefitInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed whitespace-nowrap transition-colors"
                 >
                   + Add Benefit
                 </button>
               </div>
 
+              <div className="flex items-center justify-between mb-3">
+                {benefits.length >= 10 ? (
+                  <span className="text-[11px] font-semibold text-amber-600 flex items-center">
+                    <AlertCircle className="w-3.5 h-3.5 mr-1 inline shrink-0" /> Maximum 10 benefits allowed.
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400">Add up to 10 key course learning outcomes</span>
+                )}
+                <span className={`text-[10px] ${benefitInput.length > 150 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                  {benefitInput.length}/150 characters
+                </span>
+              </div>
+
               {benefits.length > 0 && (
                 <div className="space-y-1.5">
                   {benefits.map((b, bIdx) => (
-                    <div key={bIdx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                      <span className="font-semibold text-slate-800">• {b}</span>
+                    <div key={bIdx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs min-w-0 overflow-hidden">
+                      <span className="font-semibold text-slate-800 break-words [overflow-wrap:anywhere] mr-2 line-clamp-2 min-w-0 flex-1" title={b}>
+                        • {b}
+                      </span>
                       <button
                         onClick={() => handleDeleteBenefit(bIdx)}
-                        className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                        className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer shrink-0"
+                        title="Delete Benefit"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1280,12 +1427,18 @@ export const CourseBuilder = () => {
                         <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 font-extrabold text-xs flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
                           {sIdx + 1}
                         </span>
-                        <h3 className="font-bold text-slate-900 text-base break-words [overflow-wrap:anywhere] min-w-0 flex-1">
+                        <h3
+                          className="font-bold text-slate-900 text-base break-words [overflow-wrap:anywhere] min-w-0 flex-1 line-clamp-2"
+                          title={sec.title}
+                        >
                           {sec.title}
                         </h3>
                       </div>
                       {sec.description && (
-                        <p className="text-xs text-slate-500 mt-1 ml-8 break-words [overflow-wrap:anywhere]">
+                        <p
+                          className="text-xs text-slate-500 mt-1 ml-8 break-words [overflow-wrap:anywhere] line-clamp-3"
+                          title={sec.description}
+                        >
                           {sec.description}
                         </p>
                       )}
@@ -1295,7 +1448,7 @@ export const CourseBuilder = () => {
                       <button
                         type="button"
                         onClick={() => openAddLectureModal(sIdx)}
-                        className="px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap"
+                        className="px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" /> Add Lecture
                       </button>
@@ -1303,7 +1456,7 @@ export const CourseBuilder = () => {
                         <button
                           type="button"
                           onClick={() => openAddQuizModal(sIdx)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold hover:bg-amber-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap"
+                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold hover:bg-amber-100 transition-colors cursor-pointer inline-flex items-center whitespace-nowrap shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5 mr-1" /> Add Quiz
                         </button>
@@ -1311,7 +1464,7 @@ export const CourseBuilder = () => {
                       <button
                         type="button"
                         onClick={() => openEditSectionModal(sIdx)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer shrink-0"
                         title="Edit Section"
                         aria-label="Edit Section"
                       >
@@ -1320,7 +1473,7 @@ export const CourseBuilder = () => {
                       <button
                         type="button"
                         onClick={() => handleDeleteSection(sIdx)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
                         title="Delete Section"
                         aria-label="Delete Section"
                       >
@@ -1339,9 +1492,11 @@ export const CourseBuilder = () => {
                           <div className="flex items-start space-x-3 min-w-0 flex-1">
                             <Video className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                             <div className="min-w-0 flex-1">
-                              <p className="font-bold text-slate-900 break-words [overflow-wrap:anywhere]">{lec.title}</p>
+                              <p className="font-bold text-slate-900 break-words [overflow-wrap:anywhere] line-clamp-2" title={lec.title}>
+                                {lec.title}
+                              </p>
                               {lec.description && (
-                                <p className="text-[11px] text-slate-500 break-words [overflow-wrap:anywhere] line-clamp-2">
+                                <p className="text-[11px] text-slate-500 break-words [overflow-wrap:anywhere] line-clamp-3" title={lec.description}>
                                   {lec.description}
                                 </p>
                               )}
@@ -1391,14 +1546,17 @@ export const CourseBuilder = () => {
                               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-900 dark:bg-amber-800/90 dark:text-amber-100 dark:border dark:border-amber-600/60 flex-shrink-0">
                                 Section Quiz
                               </span>
-                              <p className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words [overflow-wrap:anywhere] min-w-0 flex-1">
+                              <p
+                                className="font-bold text-slate-900 dark:text-slate-100 text-sm break-words [overflow-wrap:anywhere] min-w-0 flex-1 line-clamp-2"
+                                title={sec.quiz.title || `${sec.title} Quiz`}
+                              >
                                 {sec.quiz.title || `${sec.title} Quiz`}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300 mt-1">
                               <span>{sec.quiz.questions?.length || 0} Questions</span>
                               <span>•</span>
-                              <span>{sec.quiz.timeLimitMinutes || 15} Mins</span>
+                              <span>{formatQuizDuration(sec.quiz.timeLimitMinutes)}</span>
                               <span>•</span>
                               <span>Pass: {sec.quiz.passingScorePercent || 70}%</span>
                             </div>
@@ -1477,26 +1635,38 @@ export const CourseBuilder = () => {
               </label>
 
               {addAssignmentEnabled && (
-                <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Assignment Title</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">Assignment Title</label>
+                      <span className={`text-[10px] ${assignmentTitle.length > 150 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                        {assignmentTitle.length}/150 characters
+                      </span>
+                    </div>
                     <input
                       type="text"
                       value={assignmentTitle}
                       onChange={(e) => setAssignmentTitle(e.target.value)}
+                      maxLength={150}
                       placeholder="e.g. Build a Full Stack React & Node Application"
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none"
+                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Assignment Question / Instructions</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">Assignment Question / Instructions</label>
+                      <span className={`text-[10px] ${assignmentInstructions.length > 2000 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                        {assignmentInstructions.length}/2000 characters
+                      </span>
+                    </div>
                     <textarea
                       value={assignmentInstructions}
                       onChange={(e) => setAssignmentInstructions(e.target.value)}
-                      rows={4}
+                      maxLength={2000}
+                      rows={5}
                       placeholder="Detailed project guidelines and requirements..."
-                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none resize-none"
+                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none resize-none focus:border-emerald-600"
                     />
                   </div>
                 </div>
@@ -1544,9 +1714,28 @@ export const CourseBuilder = () => {
                             <FileText className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                             <span className="font-bold text-slate-900">{res.title}</span>
                           </div>
-                          <button onClick={() => handleDeleteResource(rIdx)} className="text-slate-400 hover:text-rose-600 cursor-pointer">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc({
+                                fileUrl: res.fileUrl,
+                                fileName: res.title || 'Course_Resource.pdf',
+                                fileType: 'pdf'
+                              })}
+                              className="p-1 rounded text-slate-400 hover:text-teal-600 transition-colors cursor-pointer"
+                              title="Preview PDF Resource In-App"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteResource(rIdx)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                              title="Delete Resource"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1560,87 +1749,314 @@ export const CourseBuilder = () => {
 
       {/* STEP 4 — FINAL REVIEW & PUBLISH */}
       {currentStep === 4 && (
-        <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
-          <div className="border-b border-slate-200 pb-3">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center">
-              <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600" />
-              Step 4: Final Review & Publish
-            </h2>
-            <p className="text-xs text-slate-500">Review your course summary before saving as draft or publishing.</p>
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center">
+                  <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600" />
+                  Step 4: Final Review & Publish
+                </h2>
+                <p className="text-xs text-slate-500">Review your complete course configuration before saving as draft or publishing.</p>
+              </div>
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 self-start sm:self-auto">
+                <Sparkles className="w-3.5 h-3.5 mr-1" /> Ready for Review
+              </span>
+            </div>
           </div>
 
-          <div className="space-y-6 text-xs">
-            {/* Overview Summary */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-emerald-700">
-                  {categories.find(c => String(c._id) === String(categoryId))?.name || 'Category'}
-                </span>
-                <span className="font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Step 1 Verified
-                </span>
-              </div>
-              <h3 className="text-lg font-extrabold text-slate-900 break-words [overflow-wrap:anywhere]">{title}</h3>
-              <p className="text-slate-600 break-words [overflow-wrap:anywhere]">{description || 'No description provided.'}</p>
-              {benefits.length > 0 && (
-                <div className="pt-2">
-                  <span className="font-bold text-slate-700">Course Benefits:</span>
-                  <ul className="list-disc list-inside mt-1 space-y-0.5 text-slate-500">
-                    {benefits.map((b, i) => <li key={i}>{b}</li>)}
-                  </ul>
-                </div>
-              )}
+          {/* CARD 1: COURSE OVERVIEW */}
+          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                <BookOpen className="w-4 h-4 mr-2 text-emerald-600" />
+                1. Course Overview
+              </h3>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 truncate max-w-[200px]" title={categories.find(c => String(c._id) === String(categoryId))?.name || 'Category'}>
+                {categories.find(c => String(c._id) === String(categoryId))?.name || 'Category'}
+              </span>
             </div>
 
-            {/* Sections, Lectures & Quizzes Summary */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <h4 className="font-bold text-slate-900 text-sm flex items-center">
-                <Layers className="w-4 h-4 mr-1.5 text-emerald-600" /> Course Structure ({sections.length} Sections)
-              </h4>
-              <div className="space-y-2">
-                {sections.map((sec, sIdx) => (
-                  <div key={sIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-1.5 overflow-hidden">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <p className="font-bold text-slate-900 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                        Section {sIdx + 1}: {sec.title}
-                      </p>
-                      {sec.quiz ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 flex-shrink-0 whitespace-nowrap self-start sm:self-auto">
-                          Quiz: {sec.quiz.questions?.length || 0} Questions
+            <div className="flex flex-col md:flex-row gap-5 items-start">
+              {thumbnailUrl ? (
+                <div className="w-full md:w-52 h-32 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex-shrink-0">
+                  <img src={thumbnailUrl} alt={title} className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-full md:w-52 h-32 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-slate-400 text-xs flex-shrink-0">
+                  <BookOpen className="w-8 h-8 mb-1 opacity-40 text-slate-400" />
+                  <span>No Thumbnail Provided</span>
+                </div>
+              )}
+
+              <div className="flex-1 space-y-2 min-w-0">
+                <h4 className="text-base font-extrabold text-slate-900 break-words [overflow-wrap:anywhere] line-clamp-2" title={title}>
+                  {title}
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-4" title={description}>
+                  {description || 'No description provided.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-800">
+                  Course Benefits ({benefits.length}/10)
+                </span>
+              </div>
+              {benefits.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {benefits.map((b, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start space-x-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 min-w-0 overflow-hidden"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <span
+                        className="break-words [overflow-wrap:anywhere] min-w-0 flex-1 line-clamp-2 leading-relaxed"
+                        title={b}
+                      >
+                        {b}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No course benefits added.</p>
+              )}
+            </div>
+          </div>
+
+          {/* CARD 2: COURSE STRUCTURE */}
+          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                <Layers className="w-4 h-4 mr-2 text-emerald-600" />
+                2. Course Structure
+              </h3>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0">
+                  {sections.length} {sections.length === 1 ? 'Section' : 'Sections'}
+                </span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 shrink-0">
+                  {sections.reduce((acc, s) => acc + (s.lectures?.length || 0), 0)} Lectures
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {sections.map((sec, sIdx) => (
+                <div key={sIdx} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 overflow-hidden">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 border-b border-slate-200/70 pb-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start space-x-2">
+                        <span className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-700 font-extrabold text-[11px] flex items-center justify-center flex-shrink-0 mt-0.5">
+                          {sIdx + 1}
                         </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0 whitespace-nowrap self-start sm:self-auto">No Quiz</span>
+                        <h4 className="font-bold text-slate-900 text-sm break-words [overflow-wrap:anywhere] line-clamp-2 min-w-0 flex-1" title={sec.title}>
+                          {sec.title}
+                        </h4>
+                      </div>
+                      {sec.description && (
+                        <p className="text-xs text-slate-500 mt-1 ml-7 break-words [overflow-wrap:anywhere] line-clamp-3" title={sec.description}>
+                          {sec.description}
+                        </p>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-500">{sec.lectures?.length || 0} Lectures attached</p>
-                    {sec.quiz && (
-                      <p className="text-[11px] text-amber-700 font-medium break-words [overflow-wrap:anywhere]">
-                        ✦ Quiz: {sec.quiz.title} ({sec.quiz.timeLimitMinutes || 15}m • Pass: {sec.quiz.passingScorePercent || 70}%)
-                      </p>
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap self-start sm:self-auto ml-7 sm:ml-0 shrink-0">
+                      {sec.lectures?.length || 0} Lectures
+                    </span>
+                  </div>
+
+                  {/* Lectures */}
+                  <div className="space-y-2 ml-2 sm:ml-4">
+                    {(!sec.lectures || sec.lectures.length === 0) ? (
+                      <p className="text-xs text-slate-400 italic">No lectures in this section.</p>
+                    ) : (
+                      sec.lectures.map((lec, lIdx) => (
+                        <div key={lIdx} className="p-2.5 rounded-lg bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs overflow-hidden">
+                          <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                            <Video className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-slate-800 break-words [overflow-wrap:anywhere] line-clamp-2" title={lec.title}>
+                                {lec.title}
+                              </p>
+                              {lec.description && (
+                                <p className="text-[11px] text-slate-500 line-clamp-2 break-words [overflow-wrap:anywhere]" title={lec.description}>
+                                  {lec.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-auto">
+                            {lec.videoDuration > 0 && (
+                              <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                {formatVideoDuration(lec.videoDuration)}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap shrink-0">
+                              Video Attached
+                            </span>
+                          </div>
+                        </div>
+                      ))
                     )}
+                  </div>
+
+                  {/* Section Quiz */}
+                  {sec.quiz ? (
+                    <div className="ml-2 sm:ml-4 p-3 rounded-lg bg-amber-50/70 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs overflow-hidden">
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                        <HelpCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-900 break-words [overflow-wrap:anywhere] line-clamp-2" title={sec.quiz.title}>
+                            {sec.quiz.title}
+                          </p>
+                          <p className="text-[11px] text-slate-600">
+                            {sec.quiz.questions?.length || 0} Questions • {formatQuizDuration(sec.quiz.timeLimitMinutes)} • Passing Score: {sec.quiz.passingScorePercent || 70}%
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-900 flex-shrink-0 self-start sm:self-auto">
+                        Quiz Configured
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="ml-2 sm:ml-4 text-[11px] text-slate-400 italic">
+                      No section quiz configured.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CARD 3: ASSIGNMENT DETAILS */}
+          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                <FileCheck2 className="w-4 h-4 mr-2 text-emerald-600" />
+                3. Assignment Details
+              </h3>
+              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? 'Included' : 'Not Included'}
+              </span>
+            </div>
+
+            {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <h4 className="font-bold text-slate-900 text-sm break-words [overflow-wrap:anywhere] line-clamp-2 min-w-0 flex-1" title={assignmentTitle || `${title} Project Assignment`}>
+                    {assignmentTitle || `${title} Project Assignment`}
+                  </h4>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap self-start sm:self-auto shrink-0">
+                    URL / Link or File Submission
+                  </span>
+                </div>
+                <div className="max-h-56 overflow-y-auto pr-1">
+                  <p className="text-slate-600 leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]" title={assignmentInstructions}>
+                    {assignmentInstructions || 'No additional instructions specified.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span>No Project Assignment Included</span>
+              </div>
+            )}
+          </div>
+
+          {/* CARD 4: COURSE RESOURCES */}
+          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                <FileText className="w-4 h-4 mr-2 text-emerald-600" />
+                4. Course Resources ({resources.length})
+              </h3>
+              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${addResourcesEnabled && resources.length > 0 ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-slate-100 text-slate-500'}`}>
+                {addResourcesEnabled && resources.length > 0 ? `${resources.length} Attached` : 'None'}
+              </span>
+            </div>
+
+            {addResourcesEnabled && resources.length > 0 ? (
+              <div className="space-y-2">
+                {resources.map((res, rIdx) => (
+                  <div key={rIdx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs overflow-hidden">
+                    <div className="flex items-center space-x-2.5 min-w-0 flex-1 mr-3">
+                      <FileText className="w-4 h-4 text-teal-600 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-900 break-words [overflow-wrap:anywhere] truncate" title={res.title || 'Course Resource'}>
+                          {res.title || 'Course Resource'}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 flex-shrink-0">
+                        PDF
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDoc({
+                        fileUrl: res.fileUrl,
+                        fileName: res.title || 'Course_Resource.pdf',
+                        fileType: 'pdf'
+                      })}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1 flex-shrink-0"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview</span>
+                    </button>
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span>No Downloadable Resources Attached</span>
+              </div>
+            )}
+          </div>
+
+          {/* CARD 5: PUBLISHING SUMMARY (DUPLICATE BUTTONS & TEXT REMOVED) */}
+          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-50 to-emerald-50/40 border border-slate-200 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                  <Sparkles className="w-4 h-4 mr-2 text-emerald-600" />
+                  5. Publishing Summary
+                </h3>
+                <p className="text-xs text-slate-500">Review readiness before saving as draft or publishing.</p>
+              </div>
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 self-start sm:self-auto shrink-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
+                Ready to Publish
+              </span>
             </div>
 
-            {/* Assignment Summary */}
-            {addAssignmentEnabled && (
-              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 space-y-1">
-                <h4 className="font-bold text-xs flex items-center">
-                  <FileCheck2 className="w-4 h-4 mr-1.5" /> Project Assignment Included
-                </h4>
-                <p className="text-[11px]">{assignmentInstructions}</p>
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-center">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Sections</span>
+                <span className="text-xl font-extrabold text-slate-900">{sections.length}</span>
               </div>
-            )}
-
-            {/* Resources Summary */}
-            {addResourcesEnabled && resources.length > 0 && (
-              <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200 text-teal-900 space-y-1">
-                <h4 className="font-bold text-xs flex items-center">
-                  <FileText className="w-4 h-4 mr-1.5" /> {resources.length} Downloadable PDF Resources Attached
-                </h4>
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-center">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Lectures</span>
+                <span className="text-xl font-extrabold text-emerald-600">
+                  {sections.reduce((acc, s) => acc + (s.lectures?.length || 0), 0)}
+                </span>
               </div>
-            )}
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-center">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Quizzes</span>
+                <span className="text-xl font-extrabold text-amber-600">
+                  {sections.filter(s => !!s.quiz).length}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-center">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Resources</span>
+                <span className="text-xl font-extrabold text-teal-600">{resources.length}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1664,14 +2080,26 @@ export const CourseBuilder = () => {
               Next Step <ChevronRight className="w-4 h-4 ml-1" />
             </button>
           ) : (
-            <button
-              onClick={() => handleFinalSubmit('published')}
-              disabled={submitting}
-              className="inline-flex items-center px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50"
-            >
-              <Send className="w-4 h-4 mr-1.5" />
-              {submitting ? 'Saving Changes...' : (isEditMode ? 'Save Changes' : 'Publish Course')}
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => handleFinalSubmit('draft')}
+                disabled={submitting}
+                className="inline-flex items-center px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer disabled:opacity-50 shadow-xs"
+              >
+                <Save className="w-4 h-4 mr-1.5 text-slate-500" />
+                {submitting ? 'Saving...' : 'Save as Draft'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFinalSubmit('published')}
+                disabled={submitting}
+                className="inline-flex items-center px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+              >
+                <Send className="w-4 h-4 mr-1.5" />
+                {submitting ? 'Saving Changes...' : (isEditMode ? 'Save Changes' : 'Publish Course')}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1685,23 +2113,35 @@ export const CourseBuilder = () => {
       >
         <form onSubmit={handleSaveSection} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Section Title *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">Section Title *</label>
+              <span className={`text-[10px] ${sectionTitle.length > 100 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {sectionTitle.length}/100 characters
+              </span>
+            </div>
             <input
               type="text"
               value={sectionTitle}
               onChange={(e) => setSectionTitle(e.target.value)}
               required
+              maxLength={100}
               placeholder="e.g. Module 1: Introduction & Environment Setup"
               className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Optional Section Description</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">Optional Section Description</label>
+              <span className={`text-[10px] ${sectionDesc.length > 500 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {sectionDesc.length}/500 characters
+              </span>
+            </div>
             <textarea
               value={sectionDesc}
               onChange={(e) => setSectionDesc(e.target.value)}
-              rows={2}
+              maxLength={500}
+              rows={3}
               placeholder="Section goals and objectives..."
               className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none resize-none focus:border-emerald-600"
             />
@@ -1727,23 +2167,35 @@ export const CourseBuilder = () => {
       >
         <form onSubmit={handleSaveLecture} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Title *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">Lecture Title *</label>
+              <span className={`text-[10px] ${lectureTitle.length > 120 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {lectureTitle.length}/120 characters
+              </span>
+            </div>
             <input
               type="text"
               value={lectureTitle}
               onChange={(e) => setLectureTitle(e.target.value)}
               required
+              maxLength={120}
               placeholder="e.g. Lecture 1.1: What is React?"
               className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Lecture Description</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">Lecture Description</label>
+              <span className={`text-[10px] ${lectureDesc.length > 1000 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {lectureDesc.length}/1000 characters
+              </span>
+            </div>
             <textarea
               value={lectureDesc}
               onChange={(e) => setLectureDesc(e.target.value)}
-              rows={2}
+              maxLength={1000}
+              rows={3}
               placeholder="Lecture notes and summary..."
               className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none resize-none focus:border-emerald-600"
             />
@@ -1879,28 +2331,67 @@ export const CourseBuilder = () => {
                 <label className="block text-xs font-semibold text-slate-700">
                   Quiz Title <span className="text-rose-500">*</span>
                 </label>
-                <span className="text-[10px] text-slate-400">{quizTitle.length}/100</span>
+                <span className={`text-[10px] ${quizTitle.length > 120 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                  {quizTitle.length}/120 characters
+                </span>
               </div>
               <input
                 type="text"
                 value={quizTitle}
                 onChange={(e) => setQuizTitle(e.target.value)}
                 required
-                maxLength={100}
+                maxLength={120}
                 placeholder="e.g. Section Assessment Quiz"
                 className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Duration (Minutes)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Duration (Minutes) <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[10px] text-slate-400">1 to 600 Mins (Max 10 hrs)</span>
+              </div>
               <input
                 type="number"
-                value={quizDurationMinutes}
-                onChange={(e) => setQuizDurationMinutes(Math.max(1, Number(e.target.value) || 1))}
                 min={1}
-                className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-600"
+                max={600}
+                step={1}
+                value={quizDurationMinutes}
+                onKeyDown={(e) => {
+                  if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+                onPaste={(e) => {
+                  const paste = e.clipboardData.getData('text');
+                  if (/[eE+\-.]/.test(paste)) {
+                    e.preventDefault();
+                    const sanitized = paste.replace(/[^0-9]/g, '');
+                    if (sanitized) {
+                      setQuizDurationMinutes(sanitized);
+                      setQuizDurationError(validateQuizDuration(sanitized) || '');
+                    }
+                  }
+                }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setQuizDurationMinutes(val);
+                  setQuizDurationError(validateQuizDuration(val) || '');
+                }}
+                className={`w-full px-4 py-2 rounded-xl border text-xs text-slate-900 outline-none transition-all ${
+                  quizDurationError
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
+              {quizDurationError && (
+                <p className="text-xs text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  {quizDurationError}
+                </p>
+              )}
             </div>
 
             <div>
@@ -2239,6 +2730,18 @@ export const CourseBuilder = () => {
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
       />
+
+      {/* In-App Document Preview Modal */}
+      {previewDoc && (
+        <DocumentPreviewModal
+          isOpen={Boolean(previewDoc)}
+          onClose={() => setPreviewDoc(null)}
+          fileUrl={previewDoc.fileUrl}
+          fileName={previewDoc.fileName}
+          title={previewDoc.title}
+          fileType={previewDoc.fileType}
+        />
+      )}
     </div>
   );
 };
