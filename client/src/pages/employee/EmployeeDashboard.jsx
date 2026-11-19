@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getMyReport } from '../../services/api';
@@ -22,8 +22,8 @@ import {
   FileCheck2,
   Award,
   PieChart as PieChartIcon,
-  TrendingUp,
-  ChevronRight
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -39,20 +39,26 @@ export const EmployeeDashboard = () => {
 
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
+  const fetchDashboardData = useCallback(() => {
+    setLoading(true);
+    setError(null);
     getMyReport()
-      .then(res => setReportData(res.data.data))
-      .catch(console.error)
+      .then(res => setReportData(res.data?.data || null))
+      .catch(err => {
+        console.error('Failed to load learner dashboard data:', err);
+        setError(err.response?.data?.message || err.message || 'Failed to load learner workspace data');
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <LoadingSpinner text="Loading your learner workspace..." />;
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const overview = reportData?.overview || {};
   const assignments = reportData?.assignments || [];
-  const quizAttempts = reportData?.quizAttempts || [];
-  const assignmentSubmissions = reportData?.assignmentSubmissions || [];
 
   const now = new Date();
 
@@ -65,24 +71,29 @@ export const EmployeeDashboard = () => {
   const overallProgress = overview.overallProgress || 0;
 
   // Prepare chart data for status distribution
-  const chartData = [
-    { name: 'Completed', value: completed, color: '#10b981' },
-    { name: 'In Progress', value: inProgress, color: '#0f766e' },
-    { name: 'Not Started', value: notStarted, color: '#94a3b8' },
-    { name: 'Overdue', value: overdue, color: '#f43f5e' }
-  ].filter(item => item.value > 0);
+  const chartData = useMemo(() => {
+    return [
+      { name: 'Completed', value: completed, color: '#10b981' },
+      { name: 'In Progress', value: inProgress, color: '#0f766e' },
+      { name: 'Not Started', value: notStarted, color: '#94a3b8' },
+      { name: 'Overdue', value: overdue, color: '#f43f5e' }
+    ].filter(item => item.value > 0);
+  }, [completed, inProgress, notStarted, overdue]);
 
   // Latest 3 assigned courses sorted by actual assignment/enrollment date descending
   const latestAssignedCourses = useMemo(() => {
-    return [...assignments]
+    const list = reportData?.assignments || [];
+    return [...list]
       .sort((a, b) => new Date(b.assignedAt || b.createdAt || 0) - new Date(a.assignedAt || a.createdAt || 0))
       .slice(0, 3);
-  }, [assignments]);
+  }, [reportData?.assignments]);
 
   // Latest 5 learning activity records sorted by actual activity date/time in descending order (newest first)
   const recentActivities = useMemo(() => {
+    const quizList = reportData?.quizAttempts || [];
+    const subList = reportData?.assignmentSubmissions || [];
     const list = [
-      ...quizAttempts.map(att => ({
+      ...quizList.map(att => ({
         id: `quiz_${att._id || att.id}`,
         type: 'quiz',
         title: `Attempted ${att.quizTitle}`,
@@ -91,7 +102,7 @@ export const EmployeeDashboard = () => {
         date: new Date(att.createdAt || att.completedAt || 0),
         rawDate: att.createdAt || att.completedAt
       })),
-      ...assignmentSubmissions.map(sub => ({
+      ...subList.map(sub => ({
         id: `sub_${sub._id || sub.id}`,
         type: 'assignment',
         title: `Submitted ${sub.assignmentTitle}`,
@@ -105,7 +116,33 @@ export const EmployeeDashboard = () => {
     return list
       .sort((a, b) => b.date.getTime() - a.date.getTime())
       .slice(0, 5);
-  }, [quizAttempts, assignmentSubmissions]);
+  }, [reportData?.quizAttempts, reportData?.assignmentSubmissions]);
+
+  if (loading) return <LoadingSpinner text="Loading your learner workspace..." />;
+
+  if (error && !reportData) {
+    return (
+      <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
+        <div className="p-8 rounded-2xl bg-white border border-rose-200 shadow-xs text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-slate-900 font-heading">Unable to Load Dashboard</h3>
+            <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">{error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchDashboardData}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer inline-flex items-center"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">

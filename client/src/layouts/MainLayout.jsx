@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Navbar } from '../components/common/Navbar';
 import { Sidebar } from '../components/common/Sidebar';
 import { ToastContainer } from '../components/common/Toast';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 import { useFocusMode } from '../context/FocusContext';
 
 export const MainLayout = () => {
@@ -25,11 +26,14 @@ export const MainLayout = () => {
         )}
 
         <main className={`flex-1 w-full max-w-7xl 2xl:max-w-[1600px] mx-auto min-w-0 ${isFocusMode ? 'max-w-none p-0' : 'p-3 xs:p-4 sm:p-6 lg:p-8'}`}>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>
   );
 };
+
 
 
