@@ -6,6 +6,7 @@ import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { FocusProvider } from './context/FocusContext';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AppRoutes } from './routes/AppRoutes';
 
 const queryClient = new QueryClient({
@@ -28,7 +29,9 @@ function App() {
             <SocketProvider>
               <NotificationProvider>
                 <FocusProvider>
-                  <AppRoutes />
+                  <ErrorBoundary>
+                    <AppRoutes />
+                  </ErrorBoundary>
                 </FocusProvider>
               </NotificationProvider>
             </SocketProvider>
