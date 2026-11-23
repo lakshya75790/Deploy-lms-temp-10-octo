@@ -10,7 +10,8 @@ export const replaceTokens = (text, data = {}) => {
 
   const resolvedAdmin = context.adminName || context.instructorName || 'Administrator';
 
-  return text
+  // 1. Standard base certificate tokens
+  let replaced = text
     .replace(/\{\{learnerName\}\}/gi, context.learnerName || 'Learner Name')
     .replace(/\{\{courseName\}\}/gi, context.courseName || 'Course Title')
     .replace(/\{\{completionDate\}\}/gi, context.completionDate || 'Completion Date')
@@ -18,6 +19,42 @@ export const replaceTokens = (text, data = {}) => {
     .replace(/\{\{organizationName\}\}/gi, context.organizationName || 'Organization Name')
     .replace(/\{\{adminName\}\}/gi, resolvedAdmin)
     .replace(/\{\{instructorName\}\}/gi, resolvedAdmin);
+
+  // 2. Dynamic tokens / custom fields (e.g. {{department}}, {{grade}}, {{courseDuration}}, {{batchName}}, etc.)
+  replaced = replaced.replace(/\{\{([a-zA-Z0-9_-]+)\}\}/g, (match, key) => {
+    // Direct match (case-sensitive or lowercase fallback)
+    if (context[key] !== undefined && context[key] !== null) {
+      return String(context[key]);
+    }
+    const lowerKey = key.toLowerCase();
+    const foundDirect = Object.keys(context).find((k) => k.toLowerCase() === lowerKey);
+    if (foundDirect && context[foundDirect] !== undefined && context[foundDirect] !== null) {
+      return String(context[foundDirect]);
+    }
+    // Check nested customFields object
+    if (context.customFields && typeof context.customFields === 'object') {
+      if (context.customFields[key] !== undefined && context.customFields[key] !== null) {
+        return String(context.customFields[key]);
+      }
+      const foundCustom = Object.keys(context.customFields).find((k) => k.toLowerCase() === lowerKey);
+      if (foundCustom && context.customFields[foundCustom] !== undefined && context.customFields[foundCustom] !== null) {
+        return String(context.customFields[foundCustom]);
+      }
+    }
+    // Check customFieldValues
+    if (context.customFieldValues && typeof context.customFieldValues === 'object') {
+      if (context.customFieldValues[key] !== undefined && context.customFieldValues[key] !== null) {
+        return String(context.customFieldValues[key]);
+      }
+      const foundVal = Object.keys(context.customFieldValues).find((k) => k.toLowerCase() === lowerKey);
+      if (foundVal && context.customFieldValues[foundVal] !== undefined && context.customFieldValues[foundVal] !== null) {
+        return String(context.customFieldValues[foundVal]);
+      }
+    }
+    return match;
+  });
+
+  return replaced;
 };
 
 export const generateElementId = (type = 'el') => {
@@ -142,28 +179,73 @@ export const renderSvgShape = (element) => {
     case 'gold-seal': {
       const size = Math.min(width, height);
       const r = size / 2;
+      const scale = size / 110;
+      // Mathematically centered 5-point star coordinates centered at (0, -6.5 * scale)
+      const starPoints = [
+        `0,${(-20.0 * scale).toFixed(2)}`,
+        `${(3.23 * scale).toFixed(2)},${(-10.94 * scale).toFixed(2)}`,
+        `${(12.84 * scale).toFixed(2)},${(-10.67 * scale).toFixed(2)}`,
+        `${(5.23 * scale).toFixed(2)},${(-4.80 * scale).toFixed(2)}`,
+        `${(7.93 * scale).toFixed(2)},${(+4.42 * scale).toFixed(2)}`,
+        `0,${(-1.0 * scale).toFixed(2)}`,
+        `${(-7.93 * scale).toFixed(2)},${(+4.42 * scale).toFixed(2)}`,
+        `${(-5.23 * scale).toFixed(2)},${(-4.80 * scale).toFixed(2)}`,
+        `${(-12.84 * scale).toFixed(2)},${(-10.67 * scale).toFixed(2)}`,
+        `${(-3.23 * scale).toFixed(2)},${(-10.94 * scale).toFixed(2)}`
+      ].join(' ');
+
+      const displayedSealText = (sealText || 'EXCELLENCE').trim() || 'EXCELLENCE';
+      const sealFontSize = Math.max(7, Math.round(8.5 * scale));
+      const sealLetterSpacing = Math.max(1, 1.5 * scale);
+
       return (
         <g transform={`translate(${width / 2}, ${height / 2})`}>
-          {/* Starburst teeth */}
-          <circle cx={0} cy={0} r={r - 4} fill={fill || '#d97706'} stroke={stroke || '#b45309'} strokeWidth={strokeWidth || 2} />
-          <circle cx={0} cy={0} r={r - 12} fill="none" stroke="#fef3c7" strokeWidth={1.5} strokeDasharray="3 3" />
-          <circle cx={0} cy={0} r={r - 20} fill="none" stroke="#fef3c7" strokeWidth={1} />
-          {/* Center 5-point star */}
+          {/* Outer starburst teeth / primary body */}
+          <circle
+            cx={0}
+            cy={0}
+            r={r - 4 * scale}
+            fill={fill || '#d97706'}
+            stroke={stroke || '#b45309'}
+            strokeWidth={Math.max(1.5, (strokeWidth || 2) * scale)}
+          />
+          {/* Middle dashed decorative ring */}
+          <circle
+            cx={0}
+            cy={0}
+            r={r - 12 * scale}
+            fill="none"
+            stroke="#fef3c7"
+            strokeWidth={Math.max(1, 1.5 * scale)}
+            strokeDasharray={`${Math.max(2, 3 * scale)} ${Math.max(2, 3 * scale)}`}
+          />
+          {/* Inner solid border ring */}
+          <circle
+            cx={0}
+            cy={0}
+            r={r - 20 * scale}
+            fill="none"
+            stroke="#fef3c7"
+            strokeWidth={Math.max(0.75, 1 * scale)}
+          />
+          {/* Perfectly centered 5-point star */}
           <polygon
-            points="0,-14 4,-4 14,-4 6,3 9,13 0,7 -9,13 -6,3 -14,-4 -4,-4"
+            points={starPoints}
             fill="#ffffff"
           />
-          {/* Seal text arc */}
+          {/* Perfectly centered embossed text with harmonious vertical spacing */}
           <text
-            y={r - 26}
+            x={0}
+            y={20.5 * scale}
             textAnchor="middle"
+            dominantBaseline="central"
             fill="#ffffff"
-            fontSize={9}
+            fontSize={sealFontSize}
             fontWeight="bold"
             fontFamily="Inter, sans-serif"
-            letterSpacing={1.5}
+            letterSpacing={sealLetterSpacing}
           >
-            {sealText}
+            {displayedSealText}
           </text>
         </g>
       );

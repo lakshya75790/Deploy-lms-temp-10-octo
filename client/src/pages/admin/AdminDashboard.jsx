@@ -130,8 +130,9 @@ export const AdminDashboard = () => {
 
     try {
       const res = await getAdminDashboardReports();
-      if (res.data && res.data.data) {
-        setData(res.data.data);
+      const payload = res.data?.data || res.data;
+      if (payload && typeof payload === 'object') {
+        setData(payload);
         if (isManualRefresh) {
           addToast('success', 'Dashboard analytics refreshed!');
         }
@@ -139,7 +140,7 @@ export const AdminDashboard = () => {
         throw new Error('Invalid response payload');
       }
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Failed to load organization metrics';
+      const msg = err.response?.data?.message || err.message || 'Failed to load dashboard analytics';
       setError(msg);
       addToast('error', msg);
     } finally {
@@ -243,7 +244,7 @@ export const AdminDashboard = () => {
           <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-80" />
           <div className="p-4 sm:p-6 rounded-2xl bg-white border border-slate-200 animate-pulse h-64" />
         </div>
-      ) : (
+      ) : error && !data ? null : (
         <>
           {/* SECTION 2: 5 QUICK STATS CARDS GRID */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">

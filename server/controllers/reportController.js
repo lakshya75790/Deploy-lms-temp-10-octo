@@ -2,6 +2,29 @@ const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 
+const getSafeOrgId = async (user) => {
+  if (!user) return null;
+  let orgId = null;
+  if (user.organizationId) {
+    if (typeof user.organizationId === 'object' && user.organizationId !== null) {
+      orgId = user.organizationId.id || user.organizationId._id;
+    } else {
+      orgId = user.organizationId;
+    }
+  }
+  if (!orgId && user.id) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: String(user.id) },
+      select: { organizationId: true }
+    });
+    if (dbUser?.organizationId) {
+      orgId = dbUser.organizationId;
+      user.organizationId = orgId;
+    }
+  }
+  return orgId ? String(orgId) : null;
+};
+
 /**
  * @desc    Comprehensive Organization Reports & Analytics Engine
  * @route   GET /api/reports/full-org-report
@@ -9,7 +32,10 @@ const ApiResponse = require('../utils/apiResponse');
  */
 const getFullOrgReport = async (req, res, next) => {
   try {
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const orgId = await getSafeOrgId(req.user);
+    if (!orgId) {
+      throw new ApiError(400, 'No organization associated with this administrator account');
+    }
     const now = new Date();
 
     const [
@@ -462,7 +488,17 @@ const { getOrgLicenseStats } = require('../services/licenseService');
  */
 const getAdminDashboardReports = async (req, res, next) => {
   try {
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const orgId = await getSafeOrgId(req.user);
+    if (!orgId) {
+      throw new ApiError(400, 'No organization associated with this administrator account');
+    }
+
+    let licenseStats = {
+      totalLicenses: 5,
+      usedLicenses: 0,
+      remainingLicenses: 5,
+      licenseStatus: 'Active'
+    };
 
     const [
       totalInstructors,
@@ -471,7 +507,7 @@ const getAdminDashboardReports = async (req, res, next) => {
       allEmployees,
       allAssignments,
       logsList,
-      licenseStats
+      fetchedLicenseStats
     ] = await Promise.all([
       prisma.user.count({ where: { organizationId: orgId, role: 'Instructor', status: 'active' } }),
       prisma.training.count({ where: { organizationId: orgId, isPublished: true, status: 'published' } }),
@@ -479,8 +515,15 @@ const getAdminDashboardReports = async (req, res, next) => {
       prisma.user.findMany({ where: { organizationId: orgId, role: 'Employee', status: 'active' }, select: { id: true, departmentId: true } }),
       prisma.trainingAssignment.findMany({ where: { organizationId: orgId }, select: { id: true, employeeId: true, status: true, progressPercentage: true } }),
       prisma.auditLog.findMany({ where: { organizationId: orgId }, select: { id: true, action: true, details: true, userName: true, userRole: true, timestamp: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 10 }),
-      getOrgLicenseStats(orgId)
+      getOrgLicenseStats(orgId).catch(err => {
+        console.warn(`[getAdminDashboardReports] getOrgLicenseStats fallback for org ${orgId}:`, err.message);
+        return null;
+      })
     ]);
+
+    if (fetchedLicenseStats) {
+      licenseStats = fetchedLicenseStats;
+    }
 
     const totalEmployees = allEmployees.length;
 
@@ -554,9 +597,9 @@ const getAdminDashboardReports = async (req, res, next) => {
             inProgressTrainings: inProgressAssignmentsCount,
             overdueTrainings: overdueAssignmentsCount,
             overallCompletionRate: totalAssignmentsCount > 0 ? `${Math.round((completedAssignmentsCount / totalAssignmentsCount) * 100)}%` : '0%',
-            totalLicenses: licenseStats.totalLicenses,
-            usedLicenses: licenseStats.usedLicenses,
-            remainingLicenses: licenseStats.remainingLicenses
+            totalLicenses: licenseStats?.totalLicenses ?? 5,
+            usedLicenses: licenseStats?.usedLicenses ?? 0,
+            remainingLicenses: licenseStats?.remainingLicenses ?? Math.max(0, (licenseStats?.totalLicenses ?? 5) - (licenseStats?.usedLicenses ?? 0))
           },
           licenseStats,
           departmentPerformance,
@@ -578,7 +621,10 @@ const getAdminDashboardReports = async (req, res, next) => {
  */
 const getEmployeeReport = async (req, res, next) => {
   try {
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const orgId = await getSafeOrgId(req.user);
+    if (!orgId) {
+      throw new ApiError(400, 'No organization associated with this account');
+    }
     const empParamId = String(req.params.employeeId);
 
     const [employeeRecord, assignmentsList] = await Promise.all([
@@ -645,7 +691,10 @@ const getEmployeeReport = async (req, res, next) => {
  */
 const getInstructorDashboardReports = async (req, res, next) => {
   try {
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const orgId = await getSafeOrgId(req.user);
+    if (!orgId) {
+      throw new ApiError(400, 'No organization associated with this account');
+    }
     const instructorId = String(req.user.id || req.user._id);
     const now = new Date();
 
@@ -850,7 +899,10 @@ const getInstructorDashboardReports = async (req, res, next) => {
 const getMyReport = async (req, res, next) => {
   try {
     const employeeId = String(req.user.id || req.user._id);
-    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const orgId = await getSafeOrgId(req.user);
+    if (!orgId) {
+      throw new ApiError(400, 'No organization associated with this account');
+    }
     const now = new Date();
 
     const [employeeRecord, assignmentsList, quizAttemptsList, submissionsList] = await Promise.all([

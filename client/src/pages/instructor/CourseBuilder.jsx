@@ -118,7 +118,8 @@ export const CourseBuilder = () => {
   const [quizTitle, setQuizTitle] = useState('');
   const [quizDurationMinutes, setQuizDurationMinutes] = useState(15);
   const [quizDurationError, setQuizDurationError] = useState('');
-  const [quizPassingScorePercent, setQuizPassingScorePercent] = useState(70);
+  const [quizPassingScorePercent, setQuizPassingScorePercent] = useState('');
+  const [quizPassingScoreError, setQuizPassingScoreError] = useState('');
   const [quizQuestions, setQuizQuestions] = useState([
     {
       questionText: '',
@@ -646,7 +647,8 @@ export const CourseBuilder = () => {
     setQuizTitle(sec ? `${sec.title} Quiz` : 'Section Quiz');
     setQuizDurationMinutes(15);
     setQuizDurationError('');
-    setQuizPassingScorePercent(70);
+    setQuizPassingScorePercent('');
+    setQuizPassingScoreError('');
     setQuizQuestions([
       {
         questionText: '',
@@ -668,7 +670,12 @@ export const CourseBuilder = () => {
       setQuizTitle(quiz.title || `${sec.title} Quiz`);
       setQuizDurationMinutes(sanitizeQuizDuration(quiz.timeLimitMinutes));
       setQuizDurationError('');
-      setQuizPassingScorePercent(quiz.passingScorePercent || 70);
+      setQuizPassingScorePercent(
+        quiz.passingScorePercent !== undefined && quiz.passingScorePercent !== null
+          ? String(quiz.passingScorePercent)
+          : ''
+      );
+      setQuizPassingScoreError('');
       if (quiz.questions && quiz.questions.length > 0) {
         setQuizQuestions(quiz.questions.map(q => {
           const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
@@ -732,6 +739,20 @@ export const CourseBuilder = () => {
     }
     const finalDurationMinutes = parseInt(String(quizDurationMinutes).trim(), 10);
 
+    // Validate Quiz Passing Score (1 to 100)
+    const passingScoreTrimmed = String(quizPassingScorePercent === undefined || quizPassingScorePercent === null ? '' : quizPassingScorePercent).trim();
+    if (!passingScoreTrimmed) {
+      addToast('error', 'Passing Score is required');
+      setQuizPassingScoreError('Please enter a passing score percentage between 1 and 100');
+      return;
+    }
+    const parsedPassingScore = parseInt(passingScoreTrimmed, 10);
+    if (isNaN(parsedPassingScore) || parsedPassingScore < 1 || parsedPassingScore > 100) {
+      addToast('error', 'Passing score must be between 1% and 100%');
+      setQuizPassingScoreError('Passing score must be between 1% and 100%');
+      return;
+    }
+
     const validQuestions = quizQuestions.filter(q => q.questionText && q.questionText.trim());
     if (validQuestions.length === 0) {
       addToast('error', 'Please provide at least one question with question text');
@@ -776,7 +797,7 @@ export const CourseBuilder = () => {
       ...(existingSecQuiz || {}),
       title: trimmedQuizTitle,
       timeLimitMinutes: finalDurationMinutes,
-      passingScorePercent: Number(quizPassingScorePercent) || 70,
+      passingScorePercent: parsedPassingScore,
       questions: validQuestions.map((q, qIdx) => {
         const qType = q.questionType || 'MCQ';
         let indices = Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices.map(Number) : [];
@@ -1534,8 +1555,8 @@ export const CourseBuilder = () => {
                   </div>
 
                   {/* Section Quiz (Configured independently per section) */}
-                  <div className="pt-2 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
-                    {sec.quiz ? (
+                  {sec.quiz && (
+                    <div className="pt-2 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
                       <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs overflow-hidden shadow-xs">
                         <div className="flex items-start space-x-3 min-w-0 flex-1">
                           <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0 font-bold mt-0.5 border border-amber-200/60 dark:border-amber-700/50">
@@ -1581,21 +1602,8 @@ export const CourseBuilder = () => {
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex justify-start">
-                        <button
-                          type="button"
-                          onClick={() => openAddQuizModal(sIdx)}
-                          className="text-xs font-semibold text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100/80 dark:hover:bg-amber-950/50 border border-dashed border-amber-300 dark:border-amber-700/70 rounded-xl px-3 py-2 inline-flex items-center transition-colors cursor-pointer max-w-full text-left"
-                        >
-                          <Plus className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
-                          <span className="break-words [overflow-wrap:anywhere]">
-                            Add Quiz for {sec.title}
-                          </span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -2395,15 +2403,46 @@ export const CourseBuilder = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Passing Score (%)</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                Passing Score (%) <span className="text-rose-500">*</span>
+              </label>
               <input
                 type="number"
                 value={quizPassingScorePercent}
-                onChange={(e) => setQuizPassingScorePercent(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setQuizPassingScoreError('');
+                  if (val === '') {
+                    setQuizPassingScorePercent('');
+                    return;
+                  }
+                  const sanitized = val.replace(/[^0-9]/g, '');
+                  if (sanitized === '') {
+                    setQuizPassingScorePercent('');
+                    return;
+                  }
+                  const num = parseInt(sanitized, 10);
+                  if (num > 100) {
+                    setQuizPassingScorePercent(100);
+                  } else {
+                    setQuizPassingScorePercent(sanitized);
+                  }
+                }}
                 min={1}
                 max={100}
-                className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none focus:border-emerald-600"
+                placeholder="e.g. 70"
+                className={`w-full px-4 py-2 rounded-xl border text-xs text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 outline-none transition-all ${
+                  quizPassingScoreError
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                    : 'border-slate-300 dark:border-slate-700 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20'
+                }`}
               />
+              {quizPassingScoreError && (
+                <p className="text-xs text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  {quizPassingScoreError}
+                </p>
+              )}
             </div>
           </div>
 

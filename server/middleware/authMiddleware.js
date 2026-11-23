@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { withId } = require('../config/prismaClient');
+const { prisma, withId } = require('../config/prismaClient');
 const ApiError = require('../utils/apiError');
 const { getCachedOrgLicenseValidity } = require('../services/licenseService');
 
@@ -32,10 +32,24 @@ const protect = async (req, res, next) => {
       organizationId: decoded.organizationId
     });
 
-    if (req.user.role !== 'SuperAdmin' && req.user.organizationId) {
-      const orgId = typeof req.user.organizationId === 'object'
+    if (req.user.role !== 'SuperAdmin') {
+      let orgId = typeof req.user.organizationId === 'object' && req.user.organizationId !== null
         ? (req.user.organizationId.id || req.user.organizationId._id)
         : req.user.organizationId;
+
+      if (!orgId && req.user.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { organizationId: true, status: true }
+        });
+        if (dbUser) {
+          orgId = dbUser.organizationId;
+          req.user.organizationId = orgId;
+          if (dbUser.status === 'deactivated') {
+            throw new ApiError(403, 'Your account has been deactivated. Please contact your administrator.');
+          }
+        }
+      }
 
       if (orgId) {
         const validity = await getCachedOrgLicenseValidity(orgId);

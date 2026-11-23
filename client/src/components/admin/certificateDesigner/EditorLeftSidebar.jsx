@@ -11,7 +11,8 @@ import {
   Upload,
   CheckCircle2,
   Loader2,
-  X
+  X,
+  PenTool
 } from 'lucide-react';
 import {
   DYNAMIC_TOKENS,
@@ -23,6 +24,7 @@ import { BORDER_DESIGNS, renderCertificateBorder } from './borderDesigns';
 import { uploadImage } from '../../../services/api';
 import { processTransparentSignature } from '../../../utils/signatureProcessor';
 import { useNotification } from '../../../context/NotificationContext';
+import { DrawSignatureModal } from './DrawSignatureModal';
 
 export const EditorLeftSidebar = ({
   activeTab,
@@ -43,6 +45,69 @@ export const EditorLeftSidebar = ({
   const [uploadingSig, setUploadingSig] = useState(false);
   const [signerNameInput, setSignerNameInput] = useState('');
   const [signerTitleInput, setSignerTitleInput] = useState('');
+  const [drawSigModalOpen, setDrawSigModalOpen] = useState(false);
+
+  const handleSaveDrawnSignature = (dataUrl) => {
+    onAddElement({
+      type: 'signature',
+      src: dataUrl,
+      signerName: signerNameInput.trim() || 'Authorized Signatory',
+      signerTitle: signerTitleInput.trim() || 'Organization Administrator',
+      showLine: true,
+      lineColor: '#94a3b8',
+      width: 250,
+      height: 100
+    });
+    addToast('success', 'Handwritten signature added to canvas.');
+  };
+
+  // Duplicate Dynamic Placeholder check: Each dynamic placeholder can only appear ONCE on canvas
+  const isPlaceholderOnCanvas = (token) => {
+    if (!design?.elements || !Array.isArray(design.elements)) return false;
+    const tokenLower = token.toLowerCase();
+    return design.elements.some((el) => {
+      if (el.type !== 'text' || typeof el.content !== 'string') return false;
+      const contentLower = el.content.toLowerCase();
+      if (tokenLower === '{{adminname}}') {
+        return contentLower.includes('{{adminname}}') || contentLower.includes('{{instructorname}}');
+      }
+      return contentLower.includes(tokenLower);
+    });
+  };
+
+  const handleAddPlaceholder = (tokenObj) => {
+    if (isPlaceholderOnCanvas(tokenObj.token)) {
+      addToast('warning', 'This placeholder has already been added to the certificate.');
+      return;
+    }
+
+    onAddElement({
+      type: 'text',
+      content: tokenObj.token,
+      fontSize: tokenObj.token.includes('Name') ? 36 : 16,
+      fontFamily: tokenObj.token.includes('Name') ? 'Playfair Display, serif' : 'Inter, sans-serif',
+      fontWeight: '700',
+      color: '#0f172a',
+      width: 500,
+      height: 50,
+      textAlign: 'center'
+    });
+  };
+
+  // Add Custom Text Field: simple editable text element directly placed on canvas
+  const handleAddCustomTextField = () => {
+    onAddElement({
+      type: 'text',
+      content: 'Enter Text',
+      fontSize: 18,
+      fontFamily: 'Inter, sans-serif',
+      fontWeight: '500',
+      color: '#0f172a',
+      width: 400,
+      height: 40,
+      textAlign: 'center'
+    });
+  };
 
   // Handle Image Upload onto Canvas (Standard graphic asset or logo)
   const handleImageFileChange = async (e) => {
@@ -498,6 +563,16 @@ export const EditorLeftSidebar = ({
                 />
               </div>
 
+              {/* Draw Signature Manually Option */}
+              <button
+                type="button"
+                onClick={() => setDrawSigModalOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+              >
+                <PenTool className="w-4 h-4" />
+                <span>Draw Signature</span>
+              </button>
+
               <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center text-center bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50/20 transition-all cursor-pointer group">
                 {uploadingSig ? (
                   <Loader2 className="w-6 h-6 text-emerald-600 animate-spin my-1" />
@@ -543,7 +618,7 @@ export const EditorLeftSidebar = ({
           </div>
         )}
 
-        {/* TAB 6: DYNAMIC FIELDS */}
+        {/* TAB 6: DYNAMIC PLACEHOLDERS */}
         {activeTab === 'dynamic' && (
           <div className="space-y-4">
             <div>
@@ -556,36 +631,50 @@ export const EditorLeftSidebar = ({
             </div>
 
             <div className="space-y-2.5">
-              {DYNAMIC_TOKENS.map((tokenObj) => (
-                <button
-                  key={tokenObj.token}
-                  type="button"
-                  onClick={() =>
-                    onAddElement({
-                      type: 'text',
-                      content: tokenObj.token,
-                      fontSize: tokenObj.token.includes('Name') ? 36 : 16,
-                      fontFamily: tokenObj.token.includes('Name') ? 'Playfair Display, serif' : 'Inter, sans-serif',
-                      fontWeight: '700',
-                      color: '#0f172a',
-                      width: 500,
-                      height: 50,
-                      textAlign: 'center'
-                    })
-                  }
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50/40 text-left transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline">
-                      {tokenObj.token}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-semibold">{tokenObj.label}</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    Sample: <span className="font-medium text-slate-700 dark:text-slate-200">{tokenObj.sample}</span>
-                  </p>
-                </button>
-              ))}
+              {DYNAMIC_TOKENS.map((tokenObj) => {
+                const isAdded = isPlaceholderOnCanvas(tokenObj.token);
+                return (
+                  <button
+                    key={tokenObj.token}
+                    type="button"
+                    onClick={() => handleAddPlaceholder(tokenObj)}
+                    className={`w-full p-2.5 rounded-xl border text-left transition-all cursor-pointer group ${
+                      isAdded
+                        ? 'border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/40 dark:bg-emerald-950/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-emerald-500 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline">
+                        {tokenObj.token}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isAdded && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                            Added
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-semibold">{tokenObj.label}</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      Sample: <span className="font-medium text-slate-700 dark:text-slate-200">{tokenObj.sample}</span>
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Single Add Custom Text Field Button */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleAddCustomTextField}
+                className="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-emerald-500/80 hover:border-emerald-600 bg-emerald-50/50 hover:bg-emerald-50 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
+              >
+                <Plus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Add Custom Text Field</span>
+              </button>
             </div>
           </div>
         )}
@@ -796,6 +885,13 @@ export const EditorLeftSidebar = ({
           </div>
         )}
       </div>
+
+      <DrawSignatureModal
+        isOpen={drawSigModalOpen}
+        onClose={() => setDrawSigModalOpen(false)}
+        onSave={handleSaveDrawnSignature}
+        initialTitle="Draw Signature"
+      />
     </aside>
   );
 };

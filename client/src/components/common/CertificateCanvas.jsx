@@ -352,7 +352,20 @@ export const CertificateCanvas = ({
       certificateId: certId,
       organizationName: orgName,
       adminName: resolvedAdminName,
-      instructorName: resolvedAdminName
+      instructorName: resolvedAdminName,
+      department: certificate?.employee?.department?.name || certificate?.employee?.department || sampleData?.department || 'Cloud Solutions Engineering',
+      grade: certificate?.grade || certificate?.score ? `${certificate.grade || certificate.score}` : sampleData?.grade || 'Distinction (Grade A+)',
+      batchName: certificate?.batchName || sampleData?.batchName || 'Cohort 2026-Q1',
+      courseDuration: certificate?.training?.duration || sampleData?.courseDuration || '40 Hours (8 Weeks)',
+      academicYear: certificate?.academicYear || sampleData?.academicYear || '2025-2026',
+      registrationNumber: certificate?.employee?.id || certificate?.employeeId || sampleData?.registrationNumber || 'REG-892144',
+      studentId: certificate?.employee?.id || certificate?.employeeId || sampleData?.studentId || 'REG-892144',
+      remarks: certificate?.remarks || sampleData?.remarks || 'Exemplary Completion',
+      ...(sampleData || {}),
+      ...(customDesign?.customFieldValues || {}),
+      ...(snapshot?.customFields || {}),
+      ...(certificate?.customFields || {}),
+      ...(certificate?.metadata?.customFields || {})
     };
 
     return (

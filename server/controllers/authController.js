@@ -262,15 +262,22 @@ const login = async (req, res, next) => {
       throw new ApiError(403, 'Your account has been deactivated. Please contact your administrator.');
     }
 
-    if (user.role !== 'SuperAdmin' && user.organization) {
-      if (String(user.organization.status || 'ACTIVE').toUpperCase() === 'INACTIVE') {
-        throw new ApiError(403, 'Your organization has been deactivated by the Super Admin. Please contact your administrator.');
-      }
-      const validity = await getOrgLicenseValidity(user.organization.id);
-      if (!validity.isValid) {
-        const err = new ApiError(403, validity.message);
-        err.errorCode = validity.errorCode;
-        throw err;
+    if (user.role !== 'SuperAdmin') {
+      const org = user.organization || (user.organizationId ? await prisma.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { id: true, name: true, code: true, status: true }
+      }) : null);
+
+      if (org) {
+        if (String(org.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') {
+          throw new ApiError(403, 'Your organization account is currently deactivated. Please contact your organization administrator.');
+        }
+        const validity = await getOrgLicenseValidity(org.id);
+        if (!validity.isValid) {
+          const err = new ApiError(403, validity.message);
+          err.errorCode = validity.errorCode;
+          throw err;
+        }
       }
     }
 
@@ -334,7 +341,7 @@ const getMe = async (req, res, next) => {
       isProfileComplete: true,
       profilePicture: true,
       ...(isSuperAdmin ? {} : {
-        organization: { select: { id: true, name: true, code: true } },
+        organization: { select: { id: true, name: true, code: true, status: true } },
         department: { select: { id: true, name: true, jobRoles: true } }
       })
     };
@@ -348,12 +355,26 @@ const getMe = async (req, res, next) => {
       throw new ApiError(404, 'User not found');
     }
 
-    if (user.role !== 'SuperAdmin' && user.organizationId) {
-      const validity = await getOrgLicenseValidity(user.organizationId);
-      if (!validity.isValid) {
-        const err = new ApiError(403, validity.message);
-        err.errorCode = validity.errorCode;
-        throw err;
+    if (user.status === 'deactivated') {
+      throw new ApiError(403, 'Your account has been deactivated. Please contact your administrator.');
+    }
+
+    if (user.role !== 'SuperAdmin') {
+      const org = user.organization || (user.organizationId ? await prisma.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { id: true, name: true, code: true, status: true }
+      }) : null);
+
+      if (org) {
+        if (String(org.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') {
+          throw new ApiError(403, 'Your organization account is currently deactivated. Please contact your organization administrator.');
+        }
+        const validity = await getOrgLicenseValidity(org.id);
+        if (!validity.isValid) {
+          const err = new ApiError(403, validity.message);
+          err.errorCode = validity.errorCode;
+          throw err;
+        }
       }
     }
 

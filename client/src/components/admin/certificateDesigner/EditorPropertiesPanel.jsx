@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Bold,
   Italic,
@@ -11,9 +11,12 @@ import {
   Lock,
   Unlock,
   Sparkles,
-  X
+  X,
+  PenTool,
+  Upload
 } from 'lucide-react';
 import { FONT_OPTIONS, DYNAMIC_TOKENS } from './designerConstants';
+import { DrawSignatureModal } from './DrawSignatureModal';
 
 export const EditorPropertiesPanel = ({
   selectedElement,
@@ -22,6 +25,8 @@ export const EditorPropertiesPanel = ({
   onDuplicateElement,
   onClose
 }) => {
+  const [drawSigModalOpen, setDrawSigModalOpen] = useState(false);
+
   if (!selectedElement) {
     return (
       <aside className="w-72 sm:w-80 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-5 shrink-0 select-none flex flex-col justify-between">
@@ -434,6 +439,53 @@ export const EditorPropertiesPanel = ({
       {/* SPECIFIC CONTROLS FOR SIGNATURES */}
       {el.type === 'signature' && (
         <div className="space-y-3.5">
+          {/* Signature Artwork Actions */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1">
+              Signature Artwork
+            </label>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setDrawSigModalOpen(true)}
+                className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.98]"
+              >
+                <PenTool className="w-3.5 h-3.5" />
+                <span>{el.src ? 'Re-draw Signature' : 'Draw Signature'}</span>
+              </button>
+
+              <label className="w-full py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5">
+                <Upload className="w-3.5 h-3.5 text-slate-500" />
+                <span>Upload Signature Image</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      onUpdateElement(el.id, { src: ev.target?.result });
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                />
+              </label>
+
+              {el.src && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateElement(el.id, { src: null })}
+                  className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold text-center cursor-pointer py-0.5"
+                >
+                  Clear Signature Artwork
+                </button>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1">
               Signer Name
@@ -553,6 +605,13 @@ export const EditorPropertiesPanel = ({
           </div>
         </div>
       </div>
+
+      <DrawSignatureModal
+        isOpen={drawSigModalOpen}
+        onClose={() => setDrawSigModalOpen(false)}
+        onSave={(dataUrl) => onUpdateElement(el.id, { src: dataUrl })}
+        initialTitle="Draw / Re-draw Signature"
+      />
     </aside>
   );
 };

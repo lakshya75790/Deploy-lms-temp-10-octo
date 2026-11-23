@@ -33,12 +33,12 @@ const getOrgLicenseValidity = async (organizationId, tx = prisma) => {
   }
 
   // Deactivated organization status check
-  if (String(org.status || 'ACTIVE').toUpperCase() === 'INACTIVE') {
+  if (String(org.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') {
     return {
       isValid: false,
       status: 'Inactive',
       errorCode: 'ORGANIZATION_DEACTIVATED',
-      message: 'Your organization has been deactivated by the Super Admin. Please contact your administrator.'
+      message: 'Your organization account is currently deactivated. Please contact your organization administrator.'
     };
   }
 

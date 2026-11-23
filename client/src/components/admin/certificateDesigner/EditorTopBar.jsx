@@ -5,7 +5,6 @@ import {
   ZoomIn,
   ZoomOut,
   Grid,
-  Magnet,
   Eye,
   EyeOff,
   RotateCcw,
@@ -16,9 +15,7 @@ import {
   ChevronDown,
   FileImage,
   FileText,
-  SlidersHorizontal,
-  Maximize2,
-  Minimize2
+  SlidersHorizontal
 } from 'lucide-react';
 
 export const EditorTopBar = ({
@@ -146,7 +143,7 @@ export const EditorTopBar = ({
 
         <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
 
-        {/* Grid & Snap Helpers */}
+        {/* Grid Helper */}
         <button
           type="button"
           onClick={onToggleGrid}
@@ -158,19 +155,6 @@ export const EditorTopBar = ({
           title="Toggle Canvas Grid"
         >
           <Grid className="w-4 h-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={onToggleSnap}
-          className={`p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-            snapToGrid
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400'
-              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-          title="Snap to 10px Grid"
-        >
-          <Magnet className="w-4 h-4" />
         </button>
 
         {/* Mobile/Tablet Sidebar Tools Drawer Toggle Button */}
@@ -229,36 +213,6 @@ export const EditorTopBar = ({
             </>
           )}
         </button>
-
-        {/* Full Screen Mode Toggle */}
-        {onToggleFullscreen && (
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border active:scale-[0.98] ${
-              isFullscreen
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-            title={isFullscreen ? 'Exit Full Screen (Esc)' : 'Open Full Screen for a Better Editing Experience'}
-            aria-label={isFullscreen ? 'Exit Full Screen' : 'Open Full Screen'}
-          >
-            {isFullscreen ? (
-              <>
-                <Minimize2 className="w-4 h-4 text-white shrink-0" />
-                <span className="hidden sm:inline font-bold">Exit Full Screen</span>
-                <kbd className="hidden md:inline px-1.5 py-0.5 text-[9px] bg-emerald-700/90 dark:bg-emerald-800/90 rounded font-mono text-emerald-100 border border-emerald-500/40">
-                  ESC
-                </kbd>
-              </>
-            ) : (
-              <>
-                <Maximize2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="hidden sm:inline font-bold">Full Screen</span>
-              </>
-            )}
-          </button>
-        )}
 
         {/* Reset Button */}
         <button
