@@ -259,6 +259,7 @@ enum QuestionType {
   MSQ
   TRUE_FALSE
   FILL_IN_BLANK
+  ONE_WORD
 }
 
 model QuizQuestion {
@@ -270,6 +271,7 @@ model QuizQuestion {
   correctAnswerIndex Int?
   correctAnswerIndices Int[]     @default([])
   correctAnswerText  String?
+  score              Int          @default(1)
   explanation        String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
@@ -321,6 +323,7 @@ model QuizAttemptAnswer {
   correctAnswerText   String?
   options             String[]
   isCorrect           Boolean
+  score               Int           @default(0)
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
@@ -334,6 +337,10 @@ model Assignment {
   id             String                 @id @default(uuid())
   title          String
   instructions   String
+  fileUrl        String?
+  fileName       String?
+  fileSize       Int?
+  filePublicId   String?
   trainingId     String
   subSectionId   String?
   maxScore       Int                    @default(100)

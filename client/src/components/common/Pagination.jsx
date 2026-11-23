@@ -7,16 +7,33 @@ export const Pagination = ({
   pageSize = 10,
   onPageChange,
   itemLabel = 'records',
-  className = ''
+  className = '',
+  alwaysShowCount = false
 }) => {
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
-  if (totalItems <= pageSize) {
+  if (totalItems === 0) {
+    return null;
+  }
+
+  if (totalItems <= pageSize && !alwaysShowCount) {
     return null;
   }
 
   const startRecord = (currentPage - 1) * pageSize + 1;
   const endRecord = Math.min(currentPage * pageSize, totalItems);
+
+  if (totalPages <= 1) {
+    return (
+      <div className={`p-4 sm:px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex items-center justify-between text-xs select-none ${className}`}>
+        <span className="text-slate-500 dark:text-slate-400">
+          Showing <strong className="text-slate-900 dark:text-slate-100">{startRecord}</strong> to{' '}
+          <strong className="text-slate-900 dark:text-slate-100">{endRecord}</strong> of{' '}
+          <strong className="text-slate-900 dark:text-slate-100">{totalItems}</strong> {itemLabel}
+        </span>
+      </div>
+    );
+  }
 
   // Generate numbered page buttons (show up to 5 surrounding pages)
   const getPageNumbers = () => {

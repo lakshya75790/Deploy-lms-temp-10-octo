@@ -84,3 +84,32 @@ export const validatePdfFile = (file) => {
   return { valid: true, error: null };
 };
 
+export const MAX_ASSIGNMENT_PDF_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/**
+ * Validate Assignment PDF file: PDF only, max 5 MB
+ */
+export const validateAssignmentPdfFile = (file) => {
+  if (!file) return { valid: false, error: 'No file selected.' };
+
+  const fileName = (file.name || '').toLowerCase();
+  const isPdfExtension = fileName.endsWith('.pdf');
+  const isPdfMime = !file.type || file.type === 'application/pdf' || file.type === 'application/x-pdf';
+
+  if (!isPdfExtension || !isPdfMime) {
+    return {
+      valid: false,
+      error: 'Only PDF files are allowed.'
+    };
+  }
+
+  if (file.size > MAX_ASSIGNMENT_PDF_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: 'File size exceeds the 5 MB limit. Please select a smaller PDF file.'
+    };
+  }
+
+  return { valid: true, error: null };
+};
+

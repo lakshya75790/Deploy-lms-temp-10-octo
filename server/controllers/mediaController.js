@@ -338,6 +338,7 @@ module.exports = {
   uploadImage,
   uploadVideo,
   uploadPdf,
+  uploadToCloudinary,
   viewPdfMedia,
   deleteMedia,
   deleteMediaAsset,

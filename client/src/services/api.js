@@ -207,6 +207,27 @@ export const getQuizAttempts = (id) => api.get(`/quizzes/${id}/attempts`);
 export const createAssignment = (data) => api.post('/assignments', data);
 export const getAssignmentById = (id) => api.get(`/assignments/${id}`);
 export const updateAssignment = (id, data) => api.put(`/assignments/${id}`, data);
+export const deleteAssignment = (id) => api.delete(`/assignments/${id}`);
+export const uploadAssignmentPdf = (formData, config = {}) => api.post('/assignments/upload-pdf', formData, { headers: { 'Content-Type': 'multipart/form-data' }, ...config });
+export const getAssignmentPdfViewUrl = (assignmentId) => {
+  const base = getBaseUrl();
+  let token = '';
+  try {
+    token = localStorage.getItem('lms_token') || '';
+  } catch {}
+  return `${base}/assignments/${assignmentId}/view-pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+};
+export const getAssignmentPdfDownloadUrl = (assignmentId) => {
+  const base = getBaseUrl();
+  let token = '';
+  try {
+    token = localStorage.getItem('lms_token') || '';
+  } catch {}
+  return `${base}/assignments/${assignmentId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+};
+export const fetchAssignmentPdfBlob = (assignmentId) => {
+  return api.get(`/assignments/${assignmentId}/view-pdf`, { responseType: 'blob', skipCache: true });
+};
 export const submitAssignment = (id, data) => api.post(`/assignments/${id}/submit`, data);
 export const getAssignmentSubmissions = (id) => api.get(id ? `/assignments/${id}/submissions` : '/assignments/instructor-submissions');
 export const getInstructorSubmissions = (trainingId) => api.get(`/assignments/instructor-submissions${trainingId && trainingId !== 'all' ? `?trainingId=${trainingId}` : ''}`);

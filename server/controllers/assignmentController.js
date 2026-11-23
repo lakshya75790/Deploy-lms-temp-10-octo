@@ -76,7 +76,7 @@ const getPopulatedSubmission = async (submissionId) => {
  */
 const createAssignment = async (req, res, next) => {
   try {
-    const { title, instructions, trainingId, sectionId, subSectionId, maxScore } = req.body;
+    const { title, instructions, trainingId, sectionId, subSectionId, maxScore, fileUrl, fileName, fileSize, filePublicId } = req.body;
     const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
     const instructorId = String(req.user.id || req.user._id);
 
@@ -112,6 +112,10 @@ const createAssignment = async (req, res, next) => {
       data: {
         title: title.trim(),
         instructions: instructions.trim(),
+        fileUrl: fileUrl ? String(fileUrl) : null,
+        fileName: fileName ? String(fileName) : null,
+        fileSize: fileSize ? Number(fileSize) : null,
+        filePublicId: filePublicId ? String(filePublicId) : null,
         trainingId: training.id,
         subSectionId: targetSubSectionId || training.id,
         maxScore: Number(maxScore) || 100,
@@ -209,12 +213,42 @@ const updateAssignment = async (req, res, next) => {
       throw new ApiError(403, 'Not authorized to update this assignment');
     }
 
-    const { title, instructions, maxScore } = req.body;
+    const { title, instructions, maxScore, fileUrl, fileName, fileSize, filePublicId } = req.body;
 
     const updateData = {};
     if (title) updateData.title = title.trim();
-    if (instructions) updateData.instructions = instructions.trim();
+    if (instructions !== undefined) updateData.instructions = instructions.trim();
     if (maxScore) updateData.maxScore = Number(maxScore);
+    if (fileUrl !== undefined) updateData.fileUrl = fileUrl || null;
+    if (fileName !== undefined) updateData.fileName = fileName || null;
+    if (fileSize !== undefined) updateData.fileSize = fileSize ? Number(fileSize) : null;
+    if (filePublicId !== undefined) {
+      if (assignment.filePublicId && assignment.filePublicId !== filePublicId) {
+        try {
+          const { deleteMediaAsset } = require('./mediaController');
+          await deleteMediaAsset(assignment.filePublicId, 'raw');
+        } catch (delErr) {
+          console.warn('[updateAssignment] Old assignment PDF cleanup error:', delErr.message);
+        }
+      }
+      updateData.filePublicId = filePublicId || null;
+    }
+
+    // If fileUrl is explicitly cleared or set to null/empty
+    if (fileUrl === null || fileUrl === '') {
+      if (assignment.filePublicId) {
+        try {
+          const { deleteMediaAsset } = require('./mediaController');
+          await deleteMediaAsset(assignment.filePublicId, 'raw');
+        } catch (delErr) {
+          console.warn('[updateAssignment] Cleared assignment PDF cleanup error:', delErr.message);
+        }
+      }
+      updateData.fileUrl = null;
+      updateData.fileName = null;
+      updateData.fileSize = null;
+      updateData.filePublicId = null;
+    }
 
     await prisma.assignment.update({
       where: { id: assignment.id },
@@ -477,6 +511,7 @@ const getInstructorSubmissions = async (req, res, next) => {
           select: {
             id: true,
             title: true,
+            instructions: true,
             maxScore: true,
             training: { select: { id: true, title: true } }
           }
@@ -884,10 +919,230 @@ const downloadSubmissionFile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Upload Assignment PDF Document (max 5 MB)
+ * @route   POST /api/assignments/upload-pdf
+ * @access  Private (Instructor, Admin)
+ */
+const uploadAssignmentPdf = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      throw new ApiError(400, 'Please select a PDF file to upload');
+    }
+
+    const MAX_SIZE = 5 * 1024 * 1024; // 5 MB per requirement
+    if (req.file.size > MAX_SIZE) {
+      throw new ApiError(400, 'File size exceeds the 5 MB limit. Please select a smaller PDF file.');
+    }
+
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const isPdfExtension = originalName.endsWith('.pdf');
+    const isPdfMime = req.file.mimetype === 'application/pdf' || req.file.mimetype === 'application/x-pdf';
+
+    if (!isPdfExtension || !isPdfMime) {
+      throw new ApiError(400, 'Only PDF files are allowed.');
+    }
+
+    // Verify PDF magic header bytes (%PDF-)
+    if (req.file.buffer && req.file.buffer.length >= 4) {
+      const header = req.file.buffer.toString('utf8', 0, 5);
+      if (!header.startsWith('%PDF-')) {
+        throw new ApiError(400, 'Only PDF files are allowed.');
+      }
+    }
+
+    const { uploadToCloudinary } = require('./mediaController');
+    const result = await uploadToCloudinary(req.file, 'assignments', 'raw');
+
+    res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          url: result.url,
+          fileUrl: result.url,
+          publicId: result.publicId,
+          public_id: result.publicId,
+          filePublicId: result.publicId,
+          fileName: req.file.originalname,
+          fileSize: req.file.size
+        },
+        'Assignment PDF uploaded successfully'
+      )
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Securely view/stream assignment attachment PDF
+ * @route   GET /api/assignments/:id/view-pdf
+ * @access  Private (Instructor, Admin, Employee)
+ */
+const viewAssignmentPdf = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const assignmentId = String(req.params.id);
+
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: assignmentId, organizationId: orgId },
+      include: {
+        training: true
+      }
+    });
+
+    if (!assignment) {
+      throw new ApiError(404, 'Assignment not found');
+    }
+
+    if (!assignment.fileUrl || !assignment.fileUrl.trim()) {
+      throw new ApiError(404, 'This assignment does not have an attached PDF file');
+    }
+
+    let filename = assignment.fileName || 'Assignment_Document.pdf';
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename = `${filename}.pdf`;
+    }
+
+    const asset = await fetchCloudinaryAssetBuffer(assignment.filePublicId || assignment.fileUrl, {
+      resourceType: 'raw'
+    });
+    const buffer = asset.buffer;
+
+    const safeAsciiFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const totalLength = buffer.length;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Content-Disposition', `inline; filename="${safeAsciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && rangeHeader.startsWith('bytes=')) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10) || 0;
+      const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+      if (start >= totalLength || end >= totalLength || start > end) {
+        res.setHeader('Content-Range', `bytes */${totalLength}`);
+        return res.status(416).send('Requested Range Not Satisfiable');
+      }
+
+      const chunk = buffer.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalLength}`);
+      res.setHeader('Content-Length', chunk.length);
+      return res.send(chunk);
+    }
+
+    res.setHeader('Content-Length', totalLength);
+    return res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Download Assignment Attached PDF File
+ * @route   GET /api/assignments/:id/download
+ * @access  Private (Instructor, Admin, Employee)
+ */
+const downloadAssignmentFile = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const assignmentId = String(req.params.id);
+
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: assignmentId, organizationId: orgId },
+      include: {
+        training: true
+      }
+    });
+
+    if (!assignment) {
+      throw new ApiError(404, 'Assignment not found');
+    }
+
+    if (!assignment.fileUrl || !assignment.fileUrl.trim()) {
+      throw new ApiError(404, 'This assignment does not have an attached PDF file');
+    }
+
+    let filename = assignment.fileName || 'Assignment_Document.pdf';
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename = `${filename}.pdf`;
+    }
+
+    const asset = await fetchCloudinaryAssetBuffer(assignment.filePublicId || assignment.fileUrl, {
+      resourceType: 'raw'
+    });
+    const buffer = asset.buffer;
+
+    const safeAsciiFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAsciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, no-cache');
+
+    return res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete Assignment
+ * @route   DELETE /api/assignments/:id
+ * @access  Private (Instructor owner, Admin)
+ */
+const deleteAssignment = async (req, res, next) => {
+  try {
+    const orgId = String(req.user.organizationId.id || req.user.organizationId._id || req.user.organizationId);
+    const userId = String(req.user.id || req.user._id);
+    const aId = String(req.params.id);
+
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: aId, organizationId: orgId }
+    });
+    if (!assignment) {
+      throw new ApiError(404, 'Assignment not found');
+    }
+
+    if (req.user.role === 'Instructor' && assignment.createdBy !== userId) {
+      throw new ApiError(403, 'Not authorized to delete this assignment');
+    }
+
+    if (assignment.filePublicId) {
+      try {
+        const { deleteMediaAsset } = require('./mediaController');
+        await deleteMediaAsset(assignment.filePublicId, 'raw');
+      } catch (delErr) {
+        console.warn('[deleteAssignment] File cleanup error:', delErr.message);
+      }
+    }
+
+    await prisma.trainingSubSection.updateMany({
+      where: { assignmentId: assignment.id },
+      data: { hasAssignment: false, assignmentId: null }
+    }).catch(() => {});
+
+    await prisma.assignment.delete({
+      where: { id: assignment.id }
+    });
+
+    res.status(200).json(new ApiResponse(200, null, 'Assignment deleted successfully'));
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createAssignment,
   getAssignmentById,
   updateAssignment,
+  deleteAssignment,
+  uploadAssignmentPdf,
+  viewAssignmentPdf,
+  downloadAssignmentFile,
   submitAssignment,
   getAssignmentSubmissions,
   getInstructorSubmissions,

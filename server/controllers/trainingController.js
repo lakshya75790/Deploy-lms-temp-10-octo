@@ -416,7 +416,42 @@ const saveFullCourse = async (req, res, next) => {
 
           const quizQuestionsData = sec.quiz.questions.map((q) => {
             const qType = q.questionType || (q.options && q.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-            if (qType === 'TRUE_FALSE') {
+            const scoreVal = parseInt(q.score, 10);
+            const qScore = (!isNaN(scoreVal) && scoreVal > 0) ? scoreVal : 1;
+            const qExplanation = (q.explanation || '').trim() || null;
+
+            if (qType === 'ONE_WORD') {
+              const expected = (q.correctAnswerText || '').trim().slice(0, 100);
+              const normalizeStr = (str) => (str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+              const expectedNorm = normalizeStr(expected);
+              const seen = new Set();
+              const additional = [];
+
+              if (Array.isArray(q.options)) {
+                for (const o of q.options) {
+                  if (typeof o !== 'string') continue;
+                  const trimmed = o.trim().slice(0, 100);
+                  if (!trimmed) continue;
+                  const norm = normalizeStr(trimmed);
+                  if (norm !== expectedNorm && !seen.has(norm)) {
+                    seen.add(norm);
+                    additional.push(trimmed);
+                    if (additional.length >= 5) break;
+                  }
+                }
+              }
+
+              return {
+                questionText: (q.questionText || '').trim().slice(0, 500),
+                questionType: 'ONE_WORD',
+                options: additional,
+                correctAnswerIndex: null,
+                correctAnswerIndices: [],
+                correctAnswerText: expected,
+                score: 1,
+                explanation: null
+              };
+            } else if (qType === 'TRUE_FALSE') {
               const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
               const txt = q.correctAnswerText || (idx === 0 ? 'True' : 'False');
               return {
@@ -425,7 +460,9 @@ const saveFullCourse = async (req, res, next) => {
                 options: ['True', 'False'],
                 correctAnswerIndex: idx,
                 correctAnswerIndices: [idx],
-                correctAnswerText: txt
+                correctAnswerText: txt,
+                score: qScore,
+                explanation: qExplanation
               };
             } else if (qType === 'FILL_IN_BLANK') {
               return {
@@ -434,7 +471,9 @@ const saveFullCourse = async (req, res, next) => {
                 options: [],
                 correctAnswerIndex: null,
                 correctAnswerIndices: [],
-                correctAnswerText: (q.correctAnswerText || '').trim()
+                correctAnswerText: (q.correctAnswerText || '').trim(),
+                score: qScore,
+                explanation: qExplanation
               };
             } else if (qType === 'MSQ') {
               const opts = Array.isArray(q.options) ? q.options : [];
@@ -452,7 +491,9 @@ const saveFullCourse = async (req, res, next) => {
                 options: opts,
                 correctAnswerIndex: indices.length > 0 ? indices[0] : null,
                 correctAnswerIndices: indices,
-                correctAnswerText: txt
+                correctAnswerText: txt,
+                score: qScore,
+                explanation: qExplanation
               };
             } else {
               const opts = Array.isArray(q.options) ? q.options : [];
@@ -464,7 +505,9 @@ const saveFullCourse = async (req, res, next) => {
                 options: opts,
                 correctAnswerIndex: idx,
                 correctAnswerIndices: [idx],
-                correctAnswerText: txt
+                correctAnswerText: txt,
+                score: qScore,
+                explanation: qExplanation
               };
             }
           });
@@ -613,7 +656,7 @@ const saveFullCourse = async (req, res, next) => {
 
     // Attach Assignment to the last subSection if provided
     let hasAssignment = false;
-    if (assignment && assignment.instructions) {
+    if (assignment && (assignment.instructions || assignment.fileUrl)) {
       const allSubSections = await prisma.trainingSubSection.findMany({
         where: { section: { trainingId: training.id } },
         orderBy: [{ section: { order: 'desc' } }, { order: 'desc' }]
@@ -625,14 +668,30 @@ const saveFullCourse = async (req, res, next) => {
           where: { trainingId: training.id }
         });
 
+        // Clean up old Cloudinary asset if replacing or removing file
+        if (existingAssignment?.filePublicId && assignment.filePublicId && existingAssignment.filePublicId !== assignment.filePublicId) {
+          try {
+            const { deleteMediaAsset } = require('./mediaController');
+            await deleteMediaAsset(existingAssignment.filePublicId, 'raw');
+          } catch (delErr) {
+            console.warn('[saveFullCourse] Old assignment PDF cleanup error:', delErr.message);
+          }
+        }
+
+        const assignmentData = {
+          title: assignment.title || `${title} Assignment`,
+          instructions: assignment.instructions || '',
+          fileUrl: assignment.fileUrl !== undefined ? assignment.fileUrl : (existingAssignment?.fileUrl || null),
+          fileName: assignment.fileName !== undefined ? assignment.fileName : (existingAssignment?.fileName || null),
+          fileSize: assignment.fileSize !== undefined ? (assignment.fileSize ? Number(assignment.fileSize) : null) : (existingAssignment?.fileSize || null),
+          filePublicId: assignment.filePublicId !== undefined ? assignment.filePublicId : (existingAssignment?.filePublicId || null),
+          subSectionId: lastSubSec.id
+        };
+
         if (existingAssignment) {
           await prisma.assignment.update({
             where: { id: existingAssignment.id },
-            data: {
-              title: assignment.title || `${title} Assignment`,
-              instructions: assignment.instructions,
-              subSectionId: lastSubSec.id
-            }
+            data: assignmentData
           });
           await prisma.trainingSubSection.update({
             where: { id: lastSubSec.id },
@@ -641,10 +700,8 @@ const saveFullCourse = async (req, res, next) => {
         } else {
           const newAssignment = await prisma.assignment.create({
             data: {
-              title: assignment.title || `${title} Assignment`,
-              instructions: assignment.instructions,
+              ...assignmentData,
               trainingId: training.id,
-              subSectionId: lastSubSec.id,
               maxScore: 100,
               createdBy: instructorId,
               organizationId: orgId
@@ -670,6 +727,14 @@ const saveFullCourse = async (req, res, next) => {
         where: { trainingId: training.id }
       });
       if (existingAssignment) {
+        if (existingAssignment.filePublicId) {
+          try {
+            const { deleteMediaAsset } = require('./mediaController');
+            await deleteMediaAsset(existingAssignment.filePublicId, 'raw');
+          } catch (delErr) {
+            console.warn('[saveFullCourse] Deleted assignment PDF cleanup error:', delErr.message);
+          }
+        }
         await prisma.trainingSubSection.updateMany({
           where: { section: { trainingId: training.id }, assignmentId: existingAssignment.id },
           data: { hasAssignment: false, assignmentId: null }

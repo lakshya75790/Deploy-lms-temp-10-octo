@@ -7,10 +7,11 @@ import {
   uploadImage,
   uploadVideo,
   uploadPdf,
+  uploadAssignmentPdf,
   deleteMedia
 } from '../../services/api';
-import { validateImageFile, validateVideoFile, validatePdfFile } from '../../utils/fileValidation';
-import { formatQuizDuration, sanitizeQuizDuration, validateQuizDuration } from '../../utils/formatters';
+import { validateImageFile, validateVideoFile, validatePdfFile, validateAssignmentPdfFile } from '../../utils/fileValidation';
+import { formatQuizDuration, sanitizeQuizDuration, validateQuizDuration, formatFileSize } from '../../utils/formatters';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
@@ -36,7 +37,8 @@ import {
   ChevronLeft,
   Loader2,
   AlertCircle,
-  Eye
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 
 const formatVideoDuration = (seconds) => {
@@ -135,6 +137,8 @@ export const CourseBuilder = () => {
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const [assignmentTitle, setAssignmentTitle] = useState('');
   const [assignmentInstructions, setAssignmentInstructions] = useState('');
+  const [assignmentPdf, setAssignmentPdf] = useState(null); // { fileUrl, fileName, fileSize, filePublicId }
+  const [uploadingAssignmentPdf, setUploadingAssignmentPdf] = useState(false);
 
   const [addResourcesEnabled, setAddResourcesEnabled] = useState(false);
   const [resources, setResources] = useState([]); // [{ title, fileUrl, filePublicId }]
@@ -199,14 +203,22 @@ export const CourseBuilder = () => {
                     timeLimitMinutes: sanitizeQuizDuration(secQuiz.timeLimitMinutes),
                     passingScorePercent: secQuiz.passingScorePercent || 70,
                     questions: Array.isArray(secQuiz.questions) && secQuiz.questions.length > 0
-                      ? secQuiz.questions.map(q => ({
-                          id: q._id || q.id,
-                          questionText: q.questionText || '',
-                          questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
-                          options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
-                          correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
-                          correctAnswerText: q.correctAnswerText || ''
-                        }))
+                      ? secQuiz.questions.map(q => {
+                          const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+                          return {
+                            id: q._id || q.id,
+                            questionText: q.questionText || '',
+                            questionType: qType,
+                            options: Array.isArray(q.options) && q.options.length > 0
+                              ? [...q.options]
+                              : (qType === 'ONE_WORD' || qType === 'FILL_IN_BLANK' ? [] : ['', '', '', '']),
+                            correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
+                            correctAnswerIndices: Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices : [],
+                            correctAnswerText: q.correctAnswerText || '',
+                            score: q.score !== undefined && q.score !== null ? Number(q.score) : 1,
+                            explanation: q.explanation || ''
+                          };
+                        })
                       : []
                   };
                 }
@@ -236,14 +248,22 @@ export const CourseBuilder = () => {
                   timeLimitMinutes: sanitizeQuizDuration(legacyQuiz.timeLimitMinutes),
                   passingScorePercent: legacyQuiz.passingScorePercent || 70,
                   questions: Array.isArray(legacyQuiz.questions)
-                    ? legacyQuiz.questions.map(q => ({
-                        id: q._id || q.id,
-                        questionText: q.questionText || '',
-                        questionType: q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK'),
-                        options: Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['', '', '', ''],
-                        correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
-                        correctAnswerText: q.correctAnswerText || ''
-                      }))
+                    ? legacyQuiz.questions.map(q => {
+                        const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+                        return {
+                          id: q._id || q.id,
+                          questionText: q.questionText || '',
+                          questionType: qType,
+                          options: Array.isArray(q.options) && q.options.length > 0
+                            ? [...q.options]
+                            : (qType === 'ONE_WORD' || qType === 'FILL_IN_BLANK' ? [] : ['', '', '', '']),
+                          correctAnswerIndex: q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null ? Number(q.correctAnswerIndex) : 0,
+                          correctAnswerIndices: Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices : [],
+                          correctAnswerText: q.correctAnswerText || '',
+                          score: q.score !== undefined && q.score !== null ? Number(q.score) : 1,
+                          explanation: q.explanation || ''
+                        };
+                      })
                     : []
                 };
               }
@@ -257,6 +277,14 @@ export const CourseBuilder = () => {
               setAddAssignmentEnabled(true);
               setAssignmentTitle(firstAss.title || '');
               setAssignmentInstructions(firstAss.instructions || '');
+              if (firstAss.fileUrl) {
+                setAssignmentPdf({
+                  fileUrl: firstAss.fileUrl,
+                  fileName: firstAss.fileName || 'Assignment_Document.pdf',
+                  fileSize: firstAss.fileSize || null,
+                  filePublicId: firstAss.filePublicId || null
+                });
+              }
             }
 
             // Populate Resources
@@ -656,7 +684,9 @@ export const CourseBuilder = () => {
         options: ['', '', '', ''],
         correctAnswerIndex: 0,
         correctAnswerIndices: [0],
-        correctAnswerText: ''
+        correctAnswerText: '',
+        score: 1,
+        explanation: ''
       }
     ]);
     setShowQuizModal(true);
@@ -679,14 +709,16 @@ export const CourseBuilder = () => {
       if (quiz.questions && quiz.questions.length > 0) {
         setQuizQuestions(quiz.questions.map(q => {
           const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-          const opts = Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : (qType === 'FILL_IN_BLANK' ? [] : ['', '', '', '']);
+          const opts = Array.isArray(q.options) && q.options.length > 0
+            ? [...q.options]
+            : (qType === 'FILL_IN_BLANK' || qType === 'ONE_WORD' ? [] : ['', '', '', '']);
           let indices = [];
           if (Array.isArray(q.correctAnswerIndices) && q.correctAnswerIndices.length > 0) {
             indices = q.correctAnswerIndices.map(Number);
           } else if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
             indices = [Number(q.correctAnswerIndex)];
           } else {
-            indices = qType === 'FILL_IN_BLANK' ? [] : [0];
+            indices = (qType === 'FILL_IN_BLANK' || qType === 'ONE_WORD') ? [] : [0];
           }
 
           return {
@@ -694,9 +726,11 @@ export const CourseBuilder = () => {
             questionText: q.questionText || '',
             questionType: qType,
             options: opts,
-            correctAnswerIndex: indices.length > 0 ? indices[0] : (qType === 'FILL_IN_BLANK' ? null : 0),
+            correctAnswerIndex: indices.length > 0 ? indices[0] : ((qType === 'FILL_IN_BLANK' || qType === 'ONE_WORD') ? null : 0),
             correctAnswerIndices: indices,
-            correctAnswerText: q.correctAnswerText || ''
+            correctAnswerText: q.correctAnswerText || '',
+            score: q.score !== undefined && q.score !== null ? Number(q.score) : 1,
+            explanation: q.explanation || ''
           };
         }));
       } else {
@@ -707,7 +741,9 @@ export const CourseBuilder = () => {
             options: ['', '', '', ''],
             correctAnswerIndex: 0,
             correctAnswerIndices: [0],
-            correctAnswerText: ''
+            correctAnswerText: '',
+            score: 1,
+            explanation: ''
           }
         ]);
       }
@@ -785,6 +821,47 @@ export const CourseBuilder = () => {
           }
         }
       }
+      if (q.questionType === 'ONE_WORD') {
+        const trimmedExpected = (q.correctAnswerText || '').trim();
+        if (!trimmedExpected) {
+          addToast('error', `Question #${i + 1}: Expected Answer is required for One-Word Answer`);
+          return;
+        }
+        if (trimmedExpected.length > 100) {
+          addToast('error', `Question #${i + 1}: Expected Answer cannot exceed 100 characters`);
+          return;
+        }
+
+        const normalizeStr = (str) => (str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        const expectedNorm = normalizeStr(trimmedExpected);
+
+        const rawVariations = Array.isArray(q.options) ? q.options : [];
+        const filledVariations = rawVariations.map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean);
+
+        if (filledVariations.length > 5) {
+          addToast('error', `Question #${i + 1}: Maximum 5 additional accepted answers allowed.`);
+          return;
+        }
+
+        const seenNorms = new Set();
+        for (let j = 0; j < filledVariations.length; j++) {
+          const varText = filledVariations[j];
+          if (varText.length > 100) {
+            addToast('error', `Question #${i + 1}, Accepted Variation #${j + 1}: Cannot exceed 100 characters`);
+            return;
+          }
+          const varNorm = normalizeStr(varText);
+          if (varNorm === expectedNorm) {
+            addToast('error', `Question #${i + 1}: Accepted variation "${varText}" is identical to the primary Expected Answer. Duplicates are not allowed.`);
+            return;
+          }
+          if (seenNorms.has(varNorm)) {
+            addToast('error', `Question #${i + 1}: Duplicate accepted variation "${varText}" found. Each accepted answer must be unique.`);
+            return;
+          }
+          seenNorms.add(varNorm);
+        }
+      }
       if (q.questionType === 'FILL_IN_BLANK' && q.correctAnswerText && q.correctAnswerText.length > 200) {
         addToast('error', `Question #${i + 1}: Correct answer text cannot exceed 200 characters`);
         return;
@@ -811,13 +888,23 @@ export const CourseBuilder = () => {
             ? (q.options?.[indices[0]] || '')
             : (q.correctAnswerText || '');
 
+        const cleanOptions = qType === 'ONE_WORD'
+          ? (Array.isArray(q.options) ? q.options.map(o => (typeof o === 'string' ? o.trim() : '')).filter(Boolean).slice(0, 5) : [])
+          : (q.options || []);
+
+        const qScore = (!isNaN(parseInt(q.score, 10)) && parseInt(q.score, 10) > 0) ? parseInt(q.score, 10) : 1;
+        const qExplanation = qType === 'ONE_WORD' ? null : (q.explanation || '').trim();
+
         return {
           ...q,
           order: qIdx + 1,
           questionType: qType,
+          options: cleanOptions,
           correctAnswerIndices: indices,
-          correctAnswerIndex: indices.length > 0 ? indices[0] : (qType === 'FILL_IN_BLANK' ? null : 0),
-          correctAnswerText: correctText
+          correctAnswerIndex: indices.length > 0 ? indices[0] : ((qType === 'FILL_IN_BLANK' || qType === 'ONE_WORD') ? null : 0),
+          correctAnswerText: qType === 'ONE_WORD' ? (q.correctAnswerText || '').trim() : correctText,
+          score: qScore,
+          explanation: qExplanation
         };
       })
     };
@@ -853,13 +940,54 @@ export const CourseBuilder = () => {
         options: ['', '', '', ''],
         correctAnswerIndex: 0,
         correctAnswerIndices: [0],
-        correctAnswerText: ''
+        correctAnswerText: '',
+        score: 1,
+        explanation: ''
       }
     ]);
   };
 
   const handleDeleteQuestion = (idx) => {
     setQuizQuestions(quizQuestions.filter((_, i) => i !== idx));
+  };
+
+  // ASSIGNMENT PDF UPLOAD HANDLERS
+  const handleAssignmentPdfUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate PDF MIME type, extension, and 5 MB size limit
+    const validation = validateAssignmentPdfFile(file);
+    if (!validation.valid) {
+      addToast('error', validation.error);
+      e.target.value = null;
+      return;
+    }
+
+    setUploadingAssignmentPdf(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await uploadAssignmentPdf(formData);
+      const data = res.data?.data || {};
+      setAssignmentPdf({
+        fileUrl: data.fileUrl || data.url,
+        fileName: data.fileName || file.name,
+        fileSize: data.fileSize || file.size,
+        filePublicId: data.filePublicId || data.publicId
+      });
+      addToast('success', 'Assignment PDF document attached successfully!');
+    } catch (err) {
+      addToast('error', err.response?.data?.message || 'Failed to upload assignment PDF');
+    } finally {
+      setUploadingAssignmentPdf(false);
+      e.target.value = null;
+    }
+  };
+
+  const handleRemoveAssignmentPdf = () => {
+    setAssignmentPdf(null);
+    addToast('info', 'Assignment PDF attachment removed.');
   };
 
   // RESOURCE UPLOAD HANDLERS
@@ -1039,6 +1167,11 @@ export const CourseBuilder = () => {
     }
 
     if (addAssignmentEnabled) {
+      if (uploadingAssignmentPdf) {
+        addToast('error', 'Please wait for the assignment PDF upload to finish.');
+        setCurrentStep(3);
+        return;
+      }
       if (assignmentTitle.trim().length > 150) {
         addToast('error', 'Assignment title cannot exceed 150 characters');
         setCurrentStep(3);
@@ -1065,7 +1198,26 @@ export const CourseBuilder = () => {
             passingScorePercent: Number(sec.quiz.passingScorePercent) || 70,
             questions: sec.quiz.questions.filter(q => q.questionText && q.questionText.trim()).map((q, qIdx) => {
               const qType = q.questionType || (q.options?.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
-              if (qType === 'TRUE_FALSE') {
+              const qScore = (!isNaN(parseInt(q.score, 10)) && parseInt(q.score, 10) > 0) ? parseInt(q.score, 10) : 1;
+              const qExplanation = (q.explanation || '').trim();
+
+              if (qType === 'ONE_WORD') {
+                const cleanOptions = Array.isArray(q.options)
+                  ? q.options.map(o => (typeof o === 'string' ? o.trim() : '')).filter(Boolean).slice(0, 5)
+                  : [];
+                return {
+                  id: q.id || q._id,
+                  questionText: (q.questionText || '').trim(),
+                  questionType: 'ONE_WORD',
+                  options: cleanOptions,
+                  correctAnswerIndex: null,
+                  correctAnswerIndices: [],
+                  correctAnswerText: (q.correctAnswerText || '').trim(),
+                  score: qScore,
+                  explanation: null,
+                  order: q.order !== undefined ? Number(q.order) : qIdx + 1
+                };
+              } else if (qType === 'TRUE_FALSE') {
                 const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
                 return {
                   id: q.id || q._id,
@@ -1073,7 +1225,10 @@ export const CourseBuilder = () => {
                   questionType: 'TRUE_FALSE',
                   options: ['True', 'False'],
                   correctAnswerIndex: idx,
+                  correctAnswerIndices: [idx],
                   correctAnswerText: idx === 0 ? 'True' : 'False',
+                  score: qScore,
+                  explanation: qExplanation,
                   order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               } else if (qType === 'FILL_IN_BLANK') {
@@ -1083,7 +1238,25 @@ export const CourseBuilder = () => {
                   questionType: 'FILL_IN_BLANK',
                   options: [],
                   correctAnswerIndex: null,
+                  correctAnswerIndices: [],
                   correctAnswerText: (q.correctAnswerText || '').trim(),
+                  score: qScore,
+                  explanation: qExplanation,
+                  order: q.order !== undefined ? Number(q.order) : qIdx + 1
+                };
+              } else if (qType === 'MSQ') {
+                const opts = Array.isArray(q.options) ? q.options : [];
+                const indices = Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices.map(Number) : [];
+                return {
+                  id: q.id || q._id,
+                  questionText: q.questionText,
+                  questionType: 'MSQ',
+                  options: opts,
+                  correctAnswerIndex: indices.length > 0 ? indices[0] : null,
+                  correctAnswerIndices: indices,
+                  correctAnswerText: indices.map(i => opts[i]).filter(Boolean).join(', '),
+                  score: qScore,
+                  explanation: qExplanation,
                   order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               } else {
@@ -1095,7 +1268,10 @@ export const CourseBuilder = () => {
                   questionType: 'MCQ',
                   options: opts,
                   correctAnswerIndex: idx,
+                  correctAnswerIndices: [idx],
                   correctAnswerText: opts[idx] || '',
+                  score: qScore,
+                  explanation: qExplanation,
                   order: q.order !== undefined ? Number(q.order) : qIdx + 1
                 };
               }
@@ -1129,9 +1305,13 @@ export const CourseBuilder = () => {
         durationDays: 30,
         status: targetStatus, // 'draft' | 'published'
         sections: preparedSections,
-        assignment: addAssignmentEnabled && assignmentInstructions.trim() ? {
+        assignment: addAssignmentEnabled && (assignmentInstructions.trim() || assignmentPdf) ? {
           title: assignmentTitle.trim() || `${title} Project Assignment`,
-          instructions: assignmentInstructions.trim()
+          instructions: assignmentInstructions.trim(),
+          fileUrl: assignmentPdf?.fileUrl || null,
+          fileName: assignmentPdf?.fileName || null,
+          fileSize: assignmentPdf?.fileSize || null,
+          filePublicId: assignmentPdf?.filePublicId || null
         } : null,
         resources: addResourcesEnabled ? resources : []
       };
@@ -1677,6 +1857,104 @@ export const CourseBuilder = () => {
                       className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 outline-none resize-none focus:border-emerald-600"
                     />
                   </div>
+
+                  {/* Section: Upload Assignment PDF */}
+                  <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Assignment Document / Brief (Optional PDF)
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-medium">Max 5 MB • PDF only</span>
+                    </div>
+
+                    {!assignmentPdf ? (
+                      <div>
+                        <label className={`cursor-pointer inline-flex items-center px-4 py-2.5 rounded-xl text-white font-semibold text-xs transition-colors shadow-xs ${
+                          uploadingAssignmentPdf ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}>
+                          {uploadingAssignmentPdf ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          {uploadingAssignmentPdf ? 'Uploading PDF...' : 'Upload Assignment PDF'}
+                          <input
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={handleAssignmentPdfUpload}
+                            className="hidden"
+                            disabled={uploadingAssignmentPdf}
+                          />
+                        </label>
+                        <p className="text-[11px] text-slate-500 mt-1.5">
+                          Attach an assignment brief, rubric, project specification, or case study (single PDF, up to 5 MB).
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="font-bold text-slate-900 block truncate" title={assignmentPdf.fileName}>
+                                {assignmentPdf.fileName}
+                              </span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {assignmentPdf.fileSize ? (
+                                  <span className="text-[10px] font-semibold text-slate-500">
+                                    {formatFileSize(assignmentPdf.fileSize)}
+                                  </span>
+                                ) : null}
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  PDF Attached
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc({
+                                fileUrl: assignmentPdf.fileUrl,
+                                fileName: assignmentPdf.fileName || 'Assignment_Brief.pdf',
+                                fileType: 'pdf'
+                              })}
+                              className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer"
+                              title="Preview Assignment PDF In-App"
+                            >
+                              <Eye className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                              <span>View</span>
+                            </button>
+
+                            <label className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer">
+                              <RefreshCw className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                              <span>Replace</span>
+                              <input
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                onChange={handleAssignmentPdfUpload}
+                                className="hidden"
+                                disabled={uploadingAssignmentPdf}
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={handleRemoveAssignmentPdf}
+                              className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-rose-200 hover:border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors cursor-pointer"
+                              title="Remove Attached PDF"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-1" />
+                              <span>Remove</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1947,13 +2225,13 @@ export const CourseBuilder = () => {
                 <FileCheck2 className="w-4 h-4 mr-2 text-emerald-600" />
                 3. Assignment Details
               </h3>
-              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
-                {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? 'Included' : 'Not Included'}
+              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim() || assignmentPdf) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim() || assignmentPdf) ? 'Included' : 'Not Included'}
               </span>
             </div>
 
-            {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim()) ? (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs overflow-hidden">
+            {addAssignmentEnabled && (assignmentTitle.trim() || assignmentInstructions.trim() || assignmentPdf) ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs overflow-hidden">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <h4 className="font-bold text-slate-900 text-sm break-words [overflow-wrap:anywhere] line-clamp-2 min-w-0 flex-1" title={assignmentTitle || `${title} Project Assignment`}>
                     {assignmentTitle || `${title} Project Assignment`}
@@ -1967,6 +2245,33 @@ export const CourseBuilder = () => {
                     {assignmentInstructions || 'No additional instructions specified.'}
                   </p>
                 </div>
+
+                {assignmentPdf && (
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-slate-200 text-xs">
+                    <div className="flex items-center space-x-2 min-w-0 flex-1">
+                      <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold text-slate-900 truncate" title={assignmentPdf.fileName}>
+                        Attached PDF: {assignmentPdf.fileName}
+                      </span>
+                      {assignmentPdf.fileSize ? (
+                        <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
+                          ({formatFileSize(assignmentPdf.fileSize)})
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDoc({
+                        fileUrl: assignmentPdf.fileUrl,
+                        fileName: assignmentPdf.fileName || 'Assignment_Brief.pdf',
+                        fileType: 'pdf'
+                      })}
+                      className="ml-2 text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer shrink-0"
+                    >
+                      Preview
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs flex items-center space-x-2">
@@ -2475,7 +2780,12 @@ export const CourseBuilder = () => {
                           const newType = e.target.value;
                           const updated = [...quizQuestions];
                           updated[qIdx].questionType = newType;
-                          if (newType === 'TRUE_FALSE') {
+                          if (newType === 'ONE_WORD') {
+                            updated[qIdx].options = Array.isArray(updated[qIdx].options) ? updated[qIdx].options.filter(Boolean) : [];
+                            updated[qIdx].correctAnswerIndex = null;
+                            updated[qIdx].correctAnswerIndices = [];
+                            if (!updated[qIdx].score) updated[qIdx].score = 1;
+                          } else if (newType === 'TRUE_FALSE') {
                             updated[qIdx].options = ['True', 'False'];
                             updated[qIdx].correctAnswerIndex = 0;
                             updated[qIdx].correctAnswerIndices = [0];
@@ -2512,6 +2822,7 @@ export const CourseBuilder = () => {
                         <option value="MSQ">Multiple Select (Checkboxes)</option>
                         <option value="TRUE_FALSE">True / False</option>
                         <option value="FILL_IN_BLANK">Fill in the Blank</option>
+                        <option value="ONE_WORD">One-Word Answer</option>
                       </select>
 
                       {quizQuestions.length > 1 && (
@@ -2733,6 +3044,113 @@ export const CourseBuilder = () => {
                         placeholder="Enter expected correct text (evaluation is case-insensitive)..."
                         className="w-full px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-emerald-600 resize-y min-h-[36px] leading-relaxed break-words"
                       />
+                    </div>
+                  )}
+
+                  {/* One-Word Answer Field Rendering */}
+                  {currentType === 'ONE_WORD' && (
+                    <div className="space-y-3 p-3.5 rounded-lg bg-white border border-slate-200">
+                      {/* Expected Answer (Required) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                            Expected Answer <span className="text-rose-500">*</span>
+                          </label>
+                          <span className="text-[10px] text-slate-400 font-mono">{(q.correctAnswerText || '').length}/100</span>
+                        </div>
+                        <input
+                          type="text"
+                          maxLength={100}
+                          value={q.correctAnswerText || ''}
+                          onChange={(e) => {
+                            const updated = [...quizQuestions];
+                            updated[qIdx].correctAnswerText = e.target.value.slice(0, 100);
+                            setQuizQuestions(updated);
+                          }}
+                          placeholder="Enter primary expected answer (e.g. Mitochondria)"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-900 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Answer evaluation is automatically case-insensitive and trims leading, trailing, and internal multiple spaces.
+                        </p>
+                      </div>
+
+                      {/* Additional Accepted Answers (Optional Variations, Max 5) */}
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2">
+                            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                              Additional Accepted Answers <span className="text-slate-400 font-normal lowercase">(optional variations)</span>
+                            </label>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              ({(q.options || []).length}/5)
+                            </span>
+                          </div>
+
+                          {(q.options || []).length < 5 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...quizQuestions];
+                                if (!Array.isArray(updated[qIdx].options)) updated[qIdx].options = [];
+                                if (updated[qIdx].options.length < 5) {
+                                  updated[qIdx].options.push('');
+                                  setQuizQuestions(updated);
+                                }
+                              }}
+                              className="inline-flex items-center text-[11px] font-bold text-amber-600 hover:text-amber-700 cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5 mr-1" /> Add Accepted Variation
+                            </button>
+                          ) : (
+                            <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                              Maximum 5 additional accepted answers allowed.
+                            </span>
+                          )}
+                        </div>
+
+                        {(q.options || []).length === 0 ? (
+                          <p className="text-[11px] text-slate-400 italic">
+                            No variations added. Only the primary expected answer will be accepted.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(q.options || []).map((variation, varIdx) => (
+                              <div key={varIdx} className="flex items-center space-x-2">
+                                <div className="flex-1 relative flex items-center">
+                                  <input
+                                    type="text"
+                                    maxLength={100}
+                                    value={variation}
+                                    onChange={(e) => {
+                                      const updated = [...quizQuestions];
+                                      updated[qIdx].options[varIdx] = e.target.value.slice(0, 100);
+                                      setQuizQuestions(updated);
+                                    }}
+                                    placeholder={`Accepted variation #${varIdx + 1} (e.g. Mitochondrion)`}
+                                    className="w-full px-3 py-1.5 pr-14 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20"
+                                  />
+                                  <span className="absolute right-2.5 text-[10px] text-slate-400 pointer-events-none font-mono">
+                                    {(variation || '').length}/100
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...quizQuestions];
+                                    updated[qIdx].options = updated[qIdx].options.filter((_, i) => i !== varIdx);
+                                    setQuizQuestions(updated);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title="Remove Variation"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

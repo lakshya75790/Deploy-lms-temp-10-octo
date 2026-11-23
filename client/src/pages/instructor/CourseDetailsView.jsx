@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getTrainingById, getLearnerProgress } from '../../services/api';
+import { getTrainingById, getLearnerProgress, getAssignmentPdfDownloadUrl } from '../../services/api';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Modal } from '../../components/common/Modal';
 import { DocumentPreviewModal } from '../../components/common/DocumentPreviewModal';
 import { useNotification } from '../../context/NotificationContext';
-import { formatDate, formatAuditDate, formatQuizDuration } from '../../utils/formatters';
+import { formatDate, formatAuditDate, formatQuizDuration, formatFileSize } from '../../utils/formatters';
 import {
   ArrowLeft,
   BookOpen,
@@ -946,13 +946,60 @@ export const CourseDetailsView = () => {
                   </div>
 
                   {isExpanded && (
-                    <div className="px-4 sm:px-6 py-4 bg-white border-t border-slate-200 text-xs text-slate-700 space-y-2">
-                      <div className="font-bold uppercase tracking-wider text-[10px] text-slate-400">
-                        Task Instructions & Details
+                    <div className="px-4 sm:px-6 py-4 bg-white border-t border-slate-200 text-xs text-slate-700 space-y-3">
+                      <div>
+                        <div className="font-bold uppercase tracking-wider text-[10px] text-slate-400 mb-1">
+                          Task Instructions & Details
+                        </div>
+                        <div className="leading-relaxed whitespace-pre-line bg-slate-50/60 p-4 rounded-xl border border-slate-100 break-words [overflow-wrap:anywhere] max-h-60 overflow-y-auto" title={assignment.instructions}>
+                          {assignment.instructions || 'No detailed instructions provided.'}
+                        </div>
                       </div>
-                      <div className="leading-relaxed whitespace-pre-line bg-slate-50/60 p-4 rounded border border-slate-100 break-words [overflow-wrap:anywhere] max-h-60 overflow-y-auto" title={assignment.instructions}>
-                        {assignment.instructions || 'No detailed instructions provided.'}
-                      </div>
+
+                      {assignment.fileUrl && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <div className="font-bold uppercase tracking-wider text-[10px] text-slate-400 mb-1.5">
+                            Attached Assignment Document
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                              <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span className="font-semibold text-slate-900 truncate" title={assignment.fileName || 'Assignment_Document.pdf'}>
+                                {assignment.fileName || 'Assignment_Document.pdf'}
+                              </span>
+                              {assignment.fileSize ? (
+                                <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
+                                  ({formatFileSize(assignment.fileSize)})
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewDoc({
+                                  fileUrl: assignment.fileUrl,
+                                  fileName: assignment.fileName || 'Assignment_Document.pdf',
+                                  fileType: 'pdf'
+                                })}
+                                className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-white text-xs font-semibold transition-colors cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                                <span>View PDF</span>
+                              </button>
+                              <a
+                                href={assignment.id ? getAssignmentPdfDownloadUrl(assignment.id) : assignment.fileUrl}
+                                download={assignment.fileName || 'Assignment_Document.pdf'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors shadow-2xs"
+                              >
+                                <Download className="w-3.5 h-3.5 mr-1" />
+                                <span>Download</span>
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -240,4 +240,14 @@ export const validateQuizDuration = (val) => {
   return null;
 };
 
+/**
+ * Format raw byte size into human readable string e.g. "2.4 MB" or "512 KB"
+ */
+export const formatFileSize = (bytes) => {
+  if (!bytes || isNaN(bytes) || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 

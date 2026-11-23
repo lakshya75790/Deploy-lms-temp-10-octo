@@ -46,8 +46,42 @@ const getPopulatedQuizAttempt = async (attemptId) => {
  */
 const mapQuestionData = (q) => {
   const qType = q.questionType || (q.options && q.options.length > 0 ? 'MCQ' : 'FILL_IN_BLANK');
+  const scoreVal = parseInt(q.score, 10);
+  const score = (!isNaN(scoreVal) && scoreVal > 0) ? scoreVal : 1;
+  const explanation = (q.explanation || '').trim() || null;
 
-  if (qType === 'TRUE_FALSE') {
+  if (qType === 'ONE_WORD') {
+    const expected = (q.correctAnswerText || '').trim().slice(0, 100);
+    const normalizeStr = (str) => (str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const expectedNorm = normalizeStr(expected);
+    const seen = new Set();
+    const additional = [];
+
+    if (Array.isArray(q.options)) {
+      for (const o of q.options) {
+        if (typeof o !== 'string') continue;
+        const trimmed = o.trim().slice(0, 100);
+        if (!trimmed) continue;
+        const norm = normalizeStr(trimmed);
+        if (norm !== expectedNorm && !seen.has(norm)) {
+          seen.add(norm);
+          additional.push(trimmed);
+          if (additional.length >= 5) break;
+        }
+      }
+    }
+
+    return {
+      questionText: (q.questionText || '').trim().slice(0, 500),
+      questionType: 'ONE_WORD',
+      options: additional,
+      correctAnswerIndex: null,
+      correctAnswerIndices: [],
+      correctAnswerText: expected,
+      score: 1, // Default question scoring internally
+      explanation: null // Explanation removed for ONE_WORD
+    };
+  } else if (qType === 'TRUE_FALSE') {
     const idx = Number(q.correctAnswerIndex) === 1 ? 1 : 0;
     const txt = q.correctAnswerText || (idx === 0 ? 'True' : 'False');
     return {
@@ -56,7 +90,9 @@ const mapQuestionData = (q) => {
       options: ['True', 'False'],
       correctAnswerIndex: idx,
       correctAnswerIndices: [idx],
-      correctAnswerText: txt
+      correctAnswerText: txt,
+      score,
+      explanation
     };
   } else if (qType === 'FILL_IN_BLANK') {
     return {
@@ -65,7 +101,9 @@ const mapQuestionData = (q) => {
       options: [],
       correctAnswerIndex: null,
       correctAnswerIndices: [],
-      correctAnswerText: (q.correctAnswerText || '').trim()
+      correctAnswerText: (q.correctAnswerText || '').trim(),
+      score,
+      explanation
     };
   } else if (qType === 'MSQ') {
     const opts = Array.isArray(q.options) ? q.options : [];
@@ -83,7 +121,9 @@ const mapQuestionData = (q) => {
       options: opts,
       correctAnswerIndex: indices.length > 0 ? indices[0] : null,
       correctAnswerIndices: indices,
-      correctAnswerText: txt
+      correctAnswerText: txt,
+      score,
+      explanation
     };
   } else {
     // MCQ
@@ -96,7 +136,9 @@ const mapQuestionData = (q) => {
       options: opts,
       correctAnswerIndex: idx,
       correctAnswerIndices: [idx],
-      correctAnswerText: txt
+      correctAnswerText: txt,
+      score,
+      explanation
     };
   }
 };
@@ -219,7 +261,13 @@ const getQuizById = async (req, res, next) => {
     // Mask correct answers if employee is attempting the quiz
     if (req.user.role === 'Employee') {
       quizObj.questions = quizObj.questions.map(q => {
-        const { correctAnswerIndex, correctAnswerIndices, correctAnswerText, ...rest } = q;
+        const { correctAnswerIndex, correctAnswerIndices, correctAnswerText, explanation, ...rest } = q;
+        if (q.questionType === 'ONE_WORD') {
+          return {
+            ...rest,
+            options: []
+          };
+        }
         return rest;
       });
     }
@@ -488,7 +536,33 @@ const submitQuiz = async (req, res, next) => {
         : (q.correctAnswerIndex !== null && q.correctAnswerIndex !== undefined ? [Number(q.correctAnswerIndex)] : []);
       let correctAnswerText = q.correctAnswerText || '';
 
-      if (qType === 'TRUE_FALSE') {
+      if (qType === 'ONE_WORD') {
+        const rawAns = userAns && userAns.selectedAnswerText !== undefined && userAns.selectedAnswerText !== null
+          ? String(userAns.selectedAnswerText)
+          : '';
+        // Enforce maximum 100 character limit on learner input
+        selectedAnswerText = rawAns.slice(0, 100);
+
+        const normalizeAnswer = (val) => {
+          if (val === null || val === undefined) return '';
+          return String(val)
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+        };
+
+        const learnerNorm = normalizeAnswer(selectedAnswerText);
+        const expectedNorm = normalizeAnswer(correctAnswerText);
+        const additionalAnswers = Array.isArray(q.options) ? q.options : [];
+        const acceptedNorms = [expectedNorm, ...additionalAnswers.map(normalizeAnswer)].filter(Boolean);
+
+        isCorrect = Boolean(learnerNorm && acceptedNorms.includes(learnerNorm));
+        selectedOptionIndex = null;
+        selectedOptionIndices = [];
+        correctAnswerIndex = null;
+        correctAnswerIndices = [];
+
+      } else if (qType === 'TRUE_FALSE') {
         const rawOpt = userAns
           ? (userAns.selectedOptionIndex !== undefined && userAns.selectedOptionIndex !== null
             ? userAns.selectedOptionIndex
@@ -605,7 +679,8 @@ const submitQuiz = async (req, res, next) => {
         correctAnswerIndices,
         correctAnswerText,
         options: q.options || [],
-        isCorrect
+        isCorrect,
+        score: isCorrect ? qScore : 0
       });
     });
 

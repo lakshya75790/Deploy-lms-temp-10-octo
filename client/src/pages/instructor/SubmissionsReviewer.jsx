@@ -25,7 +25,8 @@ import {
   Link2,
   Download,
   Eye,
-  Loader2
+  Loader2,
+  FileText
 } from 'lucide-react';
 
 const getDisplayFileName = (submission) => {
@@ -162,15 +163,27 @@ export const SubmissionsReviewer = () => {
     }
   };
 
-  const filteredSubmissions = submissions.filter(sub => {
-    if (filterStatus === 'submitted') return sub.status === 'submitted';
-    if (filterStatus === 'reviewed') return sub.status === 'reviewed';
-    return true;
-  });
+  const filteredSubmissions = useMemo(() => {
+    return submissions.filter(sub => {
+      if (filterStatus === 'submitted') return sub.status === 'submitted';
+      if (filterStatus === 'reviewed') return sub.status === 'reviewed';
+      return true;
+    });
+  }, [submissions, filterStatus]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredSubmissions.length / pageSize));
+
+  // Reset pagination to page 1 whenever filterStatus or selectedTrainingId changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedTrainingId, filterStatus, submissions.length]);
+  }, [filterStatus, selectedTrainingId]);
+
+  // Ensure currentPage is never out of bounds when filtered results update
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   const paginatedSubmissions = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -280,15 +293,15 @@ export const SubmissionsReviewer = () => {
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700">
+            <table className="w-full text-left text-xs text-slate-700 min-w-[960px] border-collapse">
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold text-[11px] border-b border-slate-200">
                 <tr>
-                  <th className="p-4">Learner</th>
-                  <th className="p-4">Training & Assignment</th>
-                  <th className="p-4">Submission Details</th>
-                  <th className="p-4">Submitted Date</th>
-                  <th className="p-4">Status & Grade</th>
-                  <th className="p-4 text-right">Action</th>
+                  <th className="px-6 py-4 w-[23%] min-w-[210px]">Learner</th>
+                  <th className="px-6 py-4 w-[26%] min-w-[230px]">Training & Assignment</th>
+                  <th className="px-6 py-4 w-[21%] min-w-[200px]">Submission Details</th>
+                  <th className="px-6 py-4 w-[12%] min-w-[130px]">Submitted Date</th>
+                  <th className="px-6 py-4 w-[11%] min-w-[120px]">Status & Grade</th>
+                  <th className="px-6 py-4 w-[7%] min-w-[130px] text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -296,116 +309,161 @@ export const SubmissionsReviewer = () => {
                   const emp = sub.employeeId || {};
                   const assign = sub.assignmentId || {};
                   const trainingTitle = assign.trainingId?.title || 'Training Course';
+                  const assignDesc = assign.instructions || assign.description || '';
 
                   return (
                     <tr key={sub._id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-4">
-                        <div className="flex items-center space-x-3">
+                      <td className="px-6 py-5 align-middle">
+                        <div className="flex items-center space-x-3.5 min-w-0">
                           <img
-                            src={emp.profilePicture || `https://api.dicebear.com/7.x/initials/svg?seed=${emp.name || 'User'}`}
-                            alt={emp.name || 'User'}
-                            className="w-9 h-9 rounded-xl object-cover bg-slate-100 border border-slate-200"
+                            src={emp.profilePicture || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(emp.name || 'User')}`}
+                            alt={emp.name || 'Learner'}
+                            className="w-10 h-10 rounded-xl object-cover bg-slate-100 border border-slate-200 shrink-0 shadow-2xs"
                           />
-                          <div>
-                            <p className="font-bold text-slate-900 text-sm">{emp.name || 'Learner'}</p>
-                            <p className="text-[11px] text-slate-500">{emp.email || ''}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-slate-900 text-sm truncate leading-snug" title={emp.name || 'Learner'}>
+                              {emp.name || 'Learner'}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5 font-normal" title={emp.email || ''}>
+                              {emp.email || 'No email provided'}
+                            </p>
                           </div>
                         </div>
                       </td>
 
-                      <td className="p-4 space-y-0.5">
-                        <p className="font-semibold text-teal-700 text-xs">{trainingTitle}</p>
-                        <p className="text-slate-800 font-bold">{assign.title || 'Project Assignment'}</p>
-                      </td>
-
-                      <td className="p-4 space-y-1">
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700 inline-block mb-1 border border-slate-200">
-                          {sub.submissionType === 'github' ? 'URL/Link' : 'File Upload'}
-                        </span>
-
-                        {sub.submissionType === 'github' && sub.githubUrl && (
-                          <div className="max-w-[240px] sm:max-w-xs md:max-w-sm">
-                            <a
-                              href={sub.githubUrl.startsWith('http://') || sub.githubUrl.startsWith('https://') ? sub.githubUrl : `https://${sub.githubUrl}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center max-w-full text-xs text-teal-700 font-mono font-semibold hover:underline group"
-                              title={sub.githubUrl}
-                            >
-                              <Link2 className="w-3.5 h-3.5 mr-1.5 shrink-0 text-teal-600" />
-                              <span className="truncate">{sub.githubUrl}</span>
-                              <ExternalLink className="w-3 h-3 ml-1 shrink-0 opacity-70 group-hover:opacity-100" />
-                            </a>
+                      <td className="px-6 py-5 align-middle">
+                        <div className="min-w-0 max-w-[230px] sm:max-w-[260px]">
+                          <div
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-teal-50 border border-teal-200/80 text-teal-800 text-[10px] font-bold uppercase tracking-wider max-w-full truncate shadow-2xs"
+                            title={trainingTitle}
+                          >
+                            <span className="truncate">{trainingTitle}</span>
                           </div>
-                        )}
-
-                        {sub.submissionType === 'file' && sub.fileUrl && (
-                          <div className="flex items-center space-x-2 pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => setPreviewDoc({
-                                submissionId: sub._id || sub.id,
-                                fileUrl: sub.fileUrl,
-                                fileName: getDisplayFileName(sub),
-                                fileType: 'pdf'
-                              })}
-                              className="inline-flex items-center text-xs text-teal-700 font-semibold hover:underline cursor-pointer bg-transparent border-0 p-0"
-                              title="Preview PDF In-App"
+                          <h4
+                            className="text-slate-900 font-bold text-xs sm:text-sm truncate max-w-full mt-1.5 leading-snug"
+                            title={assign.title || 'Project Assignment'}
+                          >
+                            {assign.title || 'Project Assignment'}
+                          </h4>
+                          {assignDesc ? (
+                            <p
+                              className="text-[11px] text-slate-500 line-clamp-2 max-w-full mt-1 leading-relaxed font-normal"
+                              title={assignDesc}
                             >
-                              <Eye className="w-3.5 h-3.5 mr-1 text-teal-600" />
-                              View PDF
-                            </button>
-                            <span className="text-slate-300">|</span>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDownload(sub, e)}
-                              disabled={downloadingId === (sub._id || sub.id)}
-                              className="inline-flex items-center text-xs text-emerald-700 font-semibold hover:underline cursor-pointer disabled:opacity-50"
-                              title="Download Original PDF"
-                            >
-                              {downloadingId === (sub._id || sub.id) ? (
-                                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-600" />
-                              ) : (
-                                <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                              )}
-                              Download
-                            </button>
-                          </div>
-                        )}
+                              {assignDesc}
+                            </p>
+                          ) : null}
+                        </div>
                       </td>
 
-                      <td className="p-4 text-slate-500 font-mono text-[11px]">
-                        {formatDate(sub.submittedAt)}
+                      <td className="px-6 py-5 align-middle">
+                        <div className="min-w-0 max-w-[200px]">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200/80 mb-2">
+                            {sub.submissionType === 'github' ? 'URL/Link' : 'File Upload'}
+                          </span>
+
+                          {sub.submissionType === 'github' && sub.githubUrl && (
+                            <div className="max-w-full">
+                              <a
+                                href={sub.githubUrl.startsWith('http://') || sub.githubUrl.startsWith('https://') ? sub.githubUrl : `https://${sub.githubUrl}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-teal-700 font-mono font-semibold hover:text-teal-800 hover:underline max-w-full group truncate"
+                                title={sub.githubUrl}
+                              >
+                                <Link2 className="w-3.5 h-3.5 shrink-0 text-teal-600" />
+                                <span className="truncate">{sub.githubUrl}</span>
+                                <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover:opacity-100" />
+                              </a>
+                            </div>
+                          )}
+
+                          {sub.submissionType === 'file' && sub.fileUrl && (
+                            <div className="space-y-1.5 max-w-full">
+                              <div
+                                className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 max-w-full truncate"
+                                title={getDisplayFileName(sub)}
+                              >
+                                <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                                <span className="truncate font-mono text-[11px]">{getDisplayFileName(sub)}</span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewDoc({
+                                    submissionId: sub._id || sub.id,
+                                    fileUrl: sub.fileUrl,
+                                    fileName: getDisplayFileName(sub),
+                                    fileType: 'pdf'
+                                  })}
+                                  className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200/80 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                  title="Preview PDF In-App"
+                                >
+                                  <Eye className="w-3 h-3 text-teal-600" />
+                                  <span>View PDF</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDownload(sub, e)}
+                                  disabled={downloadingId === (sub._id || sub.id)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50 shadow-2xs"
+                                  title="Download Original PDF"
+                                >
+                                  {downloadingId === (sub._id || sub.id) ? (
+                                    <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                                  ) : (
+                                    <Download className="w-3 h-3 text-emerald-600" />
+                                  )}
+                                  <span>Download</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </td>
 
-                      <td className="p-4 space-y-1">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          sub.status === 'reviewed'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {sub.status === 'reviewed' ? '✓ Reviewed' : 'Pending Review'}
-                        </span>
-
-                        {sub.status === 'reviewed' && (
-                          <p className="text-xs font-semibold text-slate-800">
-                            Grade: <span className="text-emerald-700 font-bold">{sub.grade || 'Good'}</span>
-                          </p>
-                        )}
+                      <td className="px-6 py-5 align-middle">
+                        <div className="flex items-center gap-1.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
+                          <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{formatDate(sub.submittedAt)}</span>
+                        </div>
                       </td>
 
-                      <td className="p-4 text-right">
-                        <button
-                          onClick={() => openReviewModal(sub)}
-                          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center cursor-pointer ${
+                      <td className="px-6 py-5 align-middle">
+                        <div className="space-y-1.5">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             sub.status === 'reviewed'
-                              ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                              : 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
-                          }`}
-                        >
-                          <FileCheck2 className="w-3.5 h-3.5 mr-1.5" />
-                          {sub.status === 'reviewed' ? 'View Review' : 'Review Submission'}
-                        </button>
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {sub.status === 'reviewed' ? '✓ Reviewed' : 'Pending Review'}
+                          </span>
+
+                          {sub.status === 'reviewed' && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                              <span className="text-slate-400 text-[11px]">Grade:</span>
+                              <span className="font-bold text-emerald-700 text-[11px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200/60">
+                                {sub.grade || 'Good'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-5 align-middle text-right">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => openReviewModal(sub)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all inline-flex items-center cursor-pointer whitespace-nowrap shadow-xs ${
+                              sub.status === 'reviewed'
+                                ? 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 hover:border-slate-300 shadow-2xs'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            }`}
+                          >
+                            <FileCheck2 className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                            {sub.status === 'reviewed' ? 'View Review' : 'Review Submission'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -420,6 +478,7 @@ export const SubmissionsReviewer = () => {
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             itemLabel="submissions"
+            alwaysShowCount={true}
           />
         </div>
       )}

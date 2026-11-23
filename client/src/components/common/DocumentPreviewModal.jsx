@@ -15,6 +15,7 @@ import {
 import {
   fetchMediaPdfBlob,
   fetchSubmissionPdfBlob,
+  fetchAssignmentPdfBlob,
   downloadAssignmentSubmission,
   getSubmissionDownloadUrl
 } from '../../services/api';
@@ -33,6 +34,7 @@ export const DocumentPreviewModal = ({
   onClose,
   fileUrl,
   submissionId,
+  assignmentId,
   fileName,
   title,
   fileType,
@@ -120,7 +122,7 @@ export const DocumentPreviewModal = ({
 
   // Load document content whenever modal opens or document identifier changes
   const loadDocument = async () => {
-    if (!isOpen || (!fileUrl && !submissionId)) return;
+    if (!isOpen || (!fileUrl && !submissionId && !assignmentId)) return;
 
     setLoading(true);
     setError(null);
@@ -138,6 +140,8 @@ export const DocumentPreviewModal = ({
       let response;
       if (submissionId) {
         response = await fetchSubmissionPdfBlob(submissionId);
+      } else if (assignmentId) {
+        response = await fetchAssignmentPdfBlob(assignmentId);
       } else if (fileUrl) {
         // If fileUrl is already a local blob
         if (fileUrl.startsWith('blob:')) {
