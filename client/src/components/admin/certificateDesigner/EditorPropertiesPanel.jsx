@@ -354,15 +354,6 @@ export const EditorPropertiesPanel = ({
                 onChange={(e) => onUpdateElement(el.id, { fill: e.target.value })}
                 className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
               />
-              <button
-                type="button"
-                onClick={() => onUpdateElement(el.id, { fill: 'none' })}
-                className={`px-2 py-1 text-[11px] font-semibold rounded border cursor-pointer ${
-                  el.fill === 'none' ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                }`}
-              >
-                None
-              </button>
             </div>
           </div>
 
@@ -403,23 +394,6 @@ export const EditorPropertiesPanel = ({
             </div>
           </div>
 
-          {/* Stroke Dash Style */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1">
-              Stroke Line Pattern
-            </label>
-            <select
-              value={el.strokeDasharray || 'none'}
-              onChange={(e) => onUpdateElement(el.id, { strokeDasharray: e.target.value })}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs"
-            >
-              <option value="none">Solid Line</option>
-              <option value="4 4">Dashed Line (4 4)</option>
-              <option value="8 8">Long Dashes (8 8)</option>
-              <option value="2 2">Dotted Line (2 2)</option>
-            </select>
-          </div>
-
           {el.shapeType === 'gold-seal' && (
             <div>
               <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1">
@@ -427,7 +401,7 @@ export const EditorPropertiesPanel = ({
               </label>
               <input
                 type="text"
-                value={el.sealText || 'OFFICIAL'}
+                value={el.sealText !== undefined ? el.sealText : 'EXCELLENCE'}
                 onChange={(e) => onUpdateElement(el.id, { sealText: e.target.value })}
                 className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
               />

@@ -180,23 +180,25 @@ export const renderSvgShape = (element) => {
       const size = Math.min(width, height);
       const r = size / 2;
       const scale = size / 110;
-      // Mathematically centered 5-point star coordinates centered at (0, -6.5 * scale)
+      // Mathematically centered 5-point star in upper hemisphere of inner circular area
       const starPoints = [
-        `0,${(-20.0 * scale).toFixed(2)}`,
-        `${(3.23 * scale).toFixed(2)},${(-10.94 * scale).toFixed(2)}`,
-        `${(12.84 * scale).toFixed(2)},${(-10.67 * scale).toFixed(2)}`,
-        `${(5.23 * scale).toFixed(2)},${(-4.80 * scale).toFixed(2)}`,
-        `${(7.93 * scale).toFixed(2)},${(+4.42 * scale).toFixed(2)}`,
-        `0,${(-1.0 * scale).toFixed(2)}`,
-        `${(-7.93 * scale).toFixed(2)},${(+4.42 * scale).toFixed(2)}`,
-        `${(-5.23 * scale).toFixed(2)},${(-4.80 * scale).toFixed(2)}`,
-        `${(-12.84 * scale).toFixed(2)},${(-10.67 * scale).toFixed(2)}`,
-        `${(-3.23 * scale).toFixed(2)},${(-10.94 * scale).toFixed(2)}`
+        `0,${(-21.0 * scale).toFixed(2)}`,
+        `${(3.23 * scale).toFixed(2)},${(-11.94 * scale).toFixed(2)}`,
+        `${(12.84 * scale).toFixed(2)},${(-11.67 * scale).toFixed(2)}`,
+        `${(5.23 * scale).toFixed(2)},${(-5.80 * scale).toFixed(2)}`,
+        `${(7.93 * scale).toFixed(2)},${(+3.42 * scale).toFixed(2)}`,
+        `0,${(-2.0 * scale).toFixed(2)}`,
+        `${(-7.93 * scale).toFixed(2)},${(+3.42 * scale).toFixed(2)}`,
+        `${(-5.23 * scale).toFixed(2)},${(-5.80 * scale).toFixed(2)}`,
+        `${(-12.84 * scale).toFixed(2)},${(-11.67 * scale).toFixed(2)}`,
+        `${(-3.23 * scale).toFixed(2)},${(-11.94 * scale).toFixed(2)}`
       ].join(' ');
 
       const displayedSealText = (sealText || 'EXCELLENCE').trim() || 'EXCELLENCE';
-      const sealFontSize = Math.max(7, Math.round(8.5 * scale));
-      const sealLetterSpacing = Math.max(1, 1.5 * scale);
+      // Dynamically calculate font size and letter spacing based on text length to comfortably fit inside inner circular boundary
+      const baseFontSize = displayedSealText.length > 9 ? 6.2 : displayedSealText.length > 7 ? 6.6 : 7.2;
+      const sealFontSize = Math.max(3, +(baseFontSize * scale).toFixed(2));
+      const sealLetterSpacing = Math.max(0.2, +(0.7 * scale).toFixed(2));
 
       return (
         <g transform={`translate(${width / 2}, ${height / 2})`}>
@@ -233,16 +235,16 @@ export const renderSvgShape = (element) => {
             points={starPoints}
             fill="#ffffff"
           />
-          {/* Perfectly centered embossed text with harmonious vertical spacing */}
+          {/* Perfectly centered embossed text with comfortable padding away from inner circular border */}
           <text
             x={0}
-            y={20.5 * scale}
+            y={16.0 * scale}
             textAnchor="middle"
             dominantBaseline="central"
             fill="#ffffff"
             fontSize={sealFontSize}
             fontWeight="bold"
-            fontFamily="Inter, sans-serif"
+            fontFamily="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
             letterSpacing={sealLetterSpacing}
           >
             {displayedSealText}
